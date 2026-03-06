@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "babel-preset-expo": "~54.0.10",
+    "expo": "~54.0.32",
+    "expo-font": "~14.0.11"
+  }
+}
