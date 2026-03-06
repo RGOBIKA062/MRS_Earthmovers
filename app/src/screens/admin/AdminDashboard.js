@@ -282,7 +282,7 @@ const AdminDashboard = ({ navigation }) => {
         {viewMode
          === 'overall' && overallData.emergencyVehicles > 0 && (
           <Entrance delay={320}>
-            <View style={[styles.card, { backgroundColor: PREMIUM_LIGHT.accentSoft, borderColor: PREMIUM_LIGHT.danger, borderWidth: 1 }]}>
+            <View style={[styles.card, { backgroundColor: PREMIUM_LIGHT.accentSoft, borderColor: PREMIUM_LIGHT.danger, borderWidth: 1, marginTop: 40, marginBottom: 20, paddingVertical: 16 }]}>
               <Text style={[styles.title, { color: PREMIUM_LIGHT.danger }]}>Emergency Alert</Text>
               <Text style={styles.subtitle}>
                 {overallData.emergencyVehicles} vehicle(s) need immediate attention
@@ -295,14 +295,6 @@ const AdminDashboard = ({ navigation }) => {
         <View style={{ marginVertical: 32, alignItems: 'center' }}>
           <Text style={styles.title}>Quick Actions</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, justifyContent: 'center' }}>
-            <Entrance delay={360}>
-              <AnimatedPressable
-                style={[styles.button, styles.buttonSecondary, { margin: 4, flex: 1, minWidth: 120 }]}
-                onPress={() => navigation.navigate('AdminWorkRequests')}
-              >
-                <Text style={styles.buttonTextOnDark}>New Work Request</Text>
-              </AnimatedPressable>
-            </Entrance>
             <Entrance delay={400}>
               <AnimatedPressable
                 style={[styles.button, styles.buttonSecondary, { margin: 4, flex: 1, minWidth: 120 }]}

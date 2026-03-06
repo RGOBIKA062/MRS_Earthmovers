@@ -196,12 +196,6 @@ const AdminWorkRequests = ({ navigation }) => {
           </View>
         </ScrollView>
 
-        <TouchableOpacity
-          style={[styles.button, styles.buttonSecondary]}
-          onPress={() => navigation.navigate('CustomerWorkRequest')}
-        >
-          <Text style={styles.buttonTextOnDark}>Create New Request</Text>
-        </TouchableOpacity>
       </View>
 
       {loading ? (

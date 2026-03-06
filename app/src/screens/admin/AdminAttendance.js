@@ -120,8 +120,12 @@ const AdminAttendance = ({ navigation }) => {
             </View>
           )}
           {item.vehicle && (
-            <View style={{ flex: 1, backgroundColor: '#FFF3E0', borderRadius: 8, padding: 6 }}>
-              <Text style={[styles.driverContact, { fontWeight: 'bold', color: '#F57C00' }]}>🚛 {item.vehicle.vehicleNumber} - {item.vehicle.make} {item.vehicle.model}</Text>
+            <View style={{ flex: 1, backgroundColor: '#FFF3E0', borderRadius: 8, padding: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.driverContact, { fontWeight: 'bold', color: '#F57C00' }]}>🚛 {item.vehicle.vehicleNumber}</Text>
+                <Text style={[styles.driverContact, { fontSize: 12 }]}>{item.vehicle.make} {item.vehicle.model}</Text>
+              </View>
+              <Text style={{ fontWeight: '600', color: '#F57C00', fontSize: 11 }}>{item.vehicle.type}</Text>
             </View>
           )}
         </View>

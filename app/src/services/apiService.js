@@ -14,6 +14,24 @@ class ApiService {
   async getPaymentsByCustomer() {
     return this.api.get('/payments/customer');
   }
+
+  async createPaymentOrder(amount, workRequestId, description) {
+    return this.api.post('/payments/create-order', {
+      amount,
+      workRequestId,
+      description
+    });
+  }
+
+  async verifyPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature, paymentId) {
+    return this.api.post('/payments/verify', {
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      paymentId
+    });
+  }
+
   constructor() {
     this.api = axios.create({
       baseURL: API_BASE_URL,
@@ -170,6 +188,45 @@ class ApiService {
 
   async getDailyMetrics(date) {
     return this.api.get('/admin/daily-metrics', { params: { date } });
+  }
+
+  // Attendance APIs
+  async getAttendance(params = {}) {
+    return this.api.get('/attendance', { params });
+  }
+
+  async markAttendance(attendanceData) {
+    return this.api.post('/attendance', attendanceData);
+  }
+
+  async updateAttendanceStatus(attendanceId, status) {
+    return this.api.put(`/attendance/${attendanceId}`, { status });
+  }
+
+  async getDriverAttendance(driverId, params = {}) {
+    return this.api.get(`/attendance/driver/${driverId}`, { params });
+  }
+
+  async getDailyAttendance(params = {}) {
+    return this.api.get('/attendance/daily', { params });
+  }
+
+  // Payment APIs
+  async createRazorpayOrder(amount, workRequestId, description) {
+    return this.api.post('/payments/create-order', {
+      amount,
+      workRequestId,
+      description
+    });
+  }
+
+  async verifyRazorpayPayment(razorpayOrderId, razorpayPaymentId, razorpaySignature, paymentId) {
+    return this.api.post('/payments/verify', {
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      paymentId
+    });
   }
 
   // Generic API methods

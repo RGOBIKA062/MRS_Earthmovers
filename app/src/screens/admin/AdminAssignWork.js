@@ -210,9 +210,14 @@ const AdminAssignWork = ({ route, navigation }) => {
                     {v.make} {v.model} • ₹{v.hourlyRate || 0}/hr
                   </Text>
                 </View>
-                <Text style={styles.subtitle}>
-                  {selectedVehicleId === v._id ? 'Selected' : 'Select'}
-                </Text>
+                <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                  <Text style={[styles.subtitle, { fontSize: 12, fontWeight: '600', color: PREMIUM_LIGHT.accent }]}>
+                    {v.type}
+                  </Text>
+                  <Text style={styles.subtitle}>
+                    {selectedVehicleId === v._id ? 'Selected' : 'Select'}
+                  </Text>
+                </View>
               </TouchableOpacity>
             ))
           )}

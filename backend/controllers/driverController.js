@@ -208,6 +208,30 @@ class DriverController {
           assignment.workRequest.updatedAt = new Date();
           await assignment.workRequest.save();
         }
+
+        // Update attendance record with checkout time for revenue calculation
+        try {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+
+          const Attendance = require('../models/Attendance');
+          const attendance = await Attendance.findOne({
+            driver: assignment.driver,
+            date: { $gte: today, $lt: tomorrow }
+          });
+
+          if (attendance && !attendance.checkOut) {
+            attendance.checkOut = assignment.endTime;
+            const workHours = (assignment.endTime - attendance.checkIn) / (1000 * 60 * 60);
+            attendance.workHours = parseFloat(workHours.toFixed(2));
+            await attendance.save();
+          }
+        } catch (err) {
+          logger.error('Error updating attendance on work completion:', err);
+          // Don't fail the work completion if attendance update fails
+        }
       }
 
       await assignment.save();

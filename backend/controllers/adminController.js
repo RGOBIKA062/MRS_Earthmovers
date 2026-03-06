@@ -40,9 +40,9 @@ class AdminController {
         WorkRequest.find({ status: 'PENDING' }),
         User.find({ role: 'DRIVER', isActive: true }).countDocuments(),
         Attendance.find({
-          createdAt: { $gte: today, $lt: tomorrow }
-        }).populate('driver', 'name phone').populate('vehicle', 'vehicleNumber hourlyRate'),
-        Attendance.find().populate('vehicle', 'hourlyRate')
+          date: { $gte: today, $lt: tomorrow }
+        }).populate('driver', 'name phone').populate('vehicle', 'vehicleNumber type hourlyRate make model'),
+        Attendance.find().populate('vehicle', 'vehicleNumber type hourlyRate make model')
       ]);
 
       // Calculate metrics
@@ -61,7 +61,8 @@ class AdminController {
         const hours = att.workHours || 0;
         const rate = att.vehicle?.hourlyRate || 0;
         if (hours > 0 && rate > 0) {
-          return sum + (hours * rate);
+          const revenue = hours * rate;
+          return sum + revenue;
         }
         return sum;
       }, 0);
@@ -71,10 +72,14 @@ class AdminController {
         const hours = att.workHours || 0;
         const rate = att.vehicle?.hourlyRate || 0;
         if (hours > 0 && rate > 0) {
-          return sum + (hours * rate);
+          const revenue = hours * rate;
+          console.log(`Revenue calculation: ${hours} hrs × ₹${rate}/hr = ₹${revenue}`);
+          return sum + revenue;
         }
         return sum;
       }, 0);
+
+      console.log(`Total Today's Revenue: ₹${todayRevenue}`);
 
       const assignedDrivers = new Set(
         workRequests

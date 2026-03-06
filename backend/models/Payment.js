@@ -3,8 +3,7 @@ const mongoose = require('mongoose');
 const paymentSchema = new mongoose.Schema({
   workRequest: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'WorkRequest',
-    required: true
+    ref: 'WorkRequest'
   },
   customer: {
     type: mongoose.Schema.Types.ObjectId,
@@ -17,16 +16,21 @@ const paymentSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER'],
+    enum: ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'RAZORPAY'],
     required: true
   },
   status: {
     type: String,
-    enum: ['PENDING', 'PARTIAL', 'COMPLETED', 'FAILED', 'REFUNDED'],
+    enum: ['PENDING', 'PARTIAL', 'SUCCESS', 'COMPLETED', 'FAILED', 'REFUNDED'],
     default: 'PENDING'
   },
   transactionId: String,
+  razorpayOrderId: String,
+  razorpayPaymentId: String,
+  razorpaySignature: String,
+  description: String,
   dueDate: Date,
+  transactionDate: Date,
   paidAt: Date,
   notes: String,
   createdAt: {
