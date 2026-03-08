@@ -12,6 +12,25 @@ const API_BASE_URL =
   (devHost ? `http://${devHost}:3000/api` : 'http://localhost:3000/api');
 const FILE_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, '');
 
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatRupees = (value) => {
+  const amount = toNumber(value);
+  return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+};
+
+const getPayableAmount = (workRequest) => {
+  return toNumber(
+    workRequest?.billingSummary?.payableAmount ??
+    workRequest?.payableAmount ??
+    (workRequest?.status === 'COMPLETED' ? workRequest?.actualCost : workRequest?.estimatedCost) ??
+    0
+  );
+};
+
 const CustomerTrackWork = ({ route, navigation }) => {
   useEffect(() => {
     navigation.setOptions({
@@ -184,7 +203,7 @@ const CustomerTrackWork = ({ route, navigation }) => {
             const nextDone = index < steps.length - 1 ? steps[index + 1].status === 'completed' : false;
 
             return (
-              <React.Fragment key={step.id}>
+              <View key={step.id} style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <View style={styles.stepperItem}>
                   <View
                     style={[
@@ -212,7 +231,7 @@ const CustomerTrackWork = ({ route, navigation }) => {
                 {index < steps.length - 1 && (
                   <View style={[styles.stepperConnector, nextDone && styles.stepperConnectorCompleted]} />
                 )}
-              </React.Fragment>
+              </View>
             );
           })}
         </ScrollView>
@@ -259,6 +278,7 @@ const CustomerTrackWork = ({ route, navigation }) => {
                 <Text style={styles.workRequestType}>{item.workType}</Text>
                 <Text style={styles.workRequestLocation}>📍 {item.location?.address || 'Address not available'}</Text>
                 <Text style={styles.workRequestDuration}>Status: {getStatusText(item.status)}</Text>
+                <Text style={styles.workRequestDuration}>Payable: {formatRupees(getPayableAmount(item))}</Text>
               </TouchableOpacity>
             )}
             ListEmptyComponent={
@@ -338,18 +358,50 @@ const CustomerTrackWork = ({ route, navigation }) => {
               </Text>
 
               <Text style={styles.workRequestDuration}>
-                ⏱️ Duration: {workRequest.expectedDuration} hours
+                ⏱️ Duration: {String(workRequest.expectedDuration)} hours
               </Text>
 
               <Text style={styles.workRequestDuration}>
-                💰 Estimated: ₹{workRequest.estimatedCost ?? 0}
+                🗓️ Scheduled Start: {workRequest.startDate ? new Date(workRequest.startDate).toLocaleString() : 'Not scheduled'}
               </Text>
+
+              <Text style={styles.workRequestDuration}>
+                🗓️ Scheduled End: {workRequest.endDate ? new Date(workRequest.endDate).toLocaleString() : 'Not scheduled'}
+              </Text>
+
+              <Text style={styles.workRequestDuration}>
+                🚦 Work Started: {workRequest.assignmentStartTime ? new Date(workRequest.assignmentStartTime).toLocaleString() : 'Not started yet'}
+              </Text>
+
+              <Text style={styles.workRequestDuration}>
+                🏁 Work Ended: {workRequest.assignmentEndTime ? new Date(workRequest.assignmentEndTime).toLocaleString() : 'Not ended yet'}
+              </Text>
+
+              <Text style={styles.workRequestDuration}>
+                💰 Estimated: {formatRupees(workRequest.estimatedCost ?? 0)}
+              </Text>
+
+              <Text style={styles.workRequestDuration}>
+                💳 Payable: {formatRupees(getPayableAmount(workRequest))}
+              </Text>
+
+              {toNumber(workRequest?.billingSummary?.hourlyRate) > 0 ? (
+                <Text style={styles.workRequestDuration}>
+                  🧮 Rate: {formatRupees(workRequest.billingSummary.hourlyRate)}/hr
+                </Text>
+              ) : null}
+
+              {toNumber(workRequest?.billingSummary?.actualHoursWorked) > 0 ? (
+                <Text style={styles.workRequestDuration}>
+                  🕒 Worked: {String(workRequest.billingSummary.actualHoursWorked)} hours
+                </Text>
+              ) : null}
 
               {workRequest.assignedVehicle ? (
                 <View style={{ marginTop: 10 }}>
                   <Text style={styles.title}>Assigned Vehicle</Text>
                   <Text style={styles.subtitle}>
-                    🚛 {workRequest.assignedVehicle.make} {workRequest.assignedVehicle.model}
+                    🚛 {workRequest.assignedVehicle.type}
                   </Text>
                   <Text style={styles.subtitle}>Vehicle No: {workRequest.assignedVehicle.vehicleNumber}</Text>
                 </View>
@@ -425,26 +477,31 @@ const CustomerTrackWork = ({ route, navigation }) => {
               <View style={{ marginTop: 10 }}>
                 <Text style={styles.title}>Location Details</Text>
                 <Text style={styles.subtitle}>Address: {workRequest.location?.address || '—'}</Text>
-                <Text style={styles.subtitle}>Lat: {workRequest.location?.latitude ?? '—'} • Lng: {workRequest.location?.longitude ?? '—'}</Text>
+                <Text style={styles.subtitle}>Lat: {String(workRequest.location?.latitude ?? '—')} • Lng: {String(workRequest.location?.longitude ?? '—')}</Text>
               </View>
 
-              {workRequest.status === 'COMPLETED' && workRequest.actualCost ? (
+              {workRequest.status === 'COMPLETED' ? (
                 <View style={{ marginTop: 16, padding: 12, backgroundColor: '#E8F5E8', borderRadius: 8 }}>
-                  <Text style={styles.workRequestType}>Final Cost: ₹{workRequest.actualCost}</Text>
+                  <Text style={styles.workRequestType}>Final Cost: {formatRupees(getPayableAmount(workRequest))}</Text>
                   <Text style={styles.workRequestDuration}>
                     Payment Status: {workRequest.paymentStatus}
                   </Text>
                 </View>
               ) : null}
 
-              {workRequest.status === 'COMPLETED' ? (
-                <TouchableOpacity
-                  style={[styles.button, styles.buttonSecondary]}
-                  onPress={() => navigation.navigate('Invoice', { workRequestId })}
-                >
-                  <Text style={styles.buttonTextOnDark}>View Invoice</Text>
-                </TouchableOpacity>
-              ) : null}
+              <TouchableOpacity
+                style={[styles.button, { marginTop: 8, paddingVertical: 12 }]}
+                onPress={() => navigation.navigate('Payment', {
+                  workRequestId,
+                  dueAmount: Math.max(
+                    0,
+                    toNumber(getPayableAmount(workRequest))
+                  ),
+                  source: 'CustomerTrackWork'
+                })}
+              >
+                <Text style={[styles.buttonText, { fontSize: 14 }]}>View Payment Status</Text>
+              </TouchableOpacity>
             </View>
 
             <Text style={[styles.title, { marginBottom: 8 }]}>Live Updates</Text>

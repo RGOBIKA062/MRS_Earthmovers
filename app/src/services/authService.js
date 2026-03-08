@@ -38,7 +38,11 @@ class AuthService {
       const { user, token } = response.data.data;
       return { user, token };
     } catch (error) {
-      throw error.response?.data?.error || error.message;
+      const serverMessage = error.response?.data?.message || error.response?.data?.error || error.message;
+      const normalizedMessage = /invalid/i.test(String(serverMessage || ''))
+        ? 'Invalid email id or password'
+        : serverMessage;
+      throw new Error(normalizedMessage);
     }
   }
 

@@ -4,6 +4,10 @@ const Vehicle = require('../models/Vehicle');
 require('../models/PhotoProof');
 const winston = require('winston');
 const mongoose = require('mongoose');
+const {
+  reserveVehicleForAssignment,
+  releaseVehicleIfNoActiveAssignments
+} = require('../services/vehicleAvailabilityService');
 
 const logger = winston.createLogger({
   level: 'info',
@@ -14,6 +18,105 @@ const logger = winston.createLogger({
   ]
 });
 
+const DEFAULT_HOURLY_RATE = 1000;
+const VEHICLE_TYPE_HOURLY_RATE = {
+  JCB: 1000,
+  Hitachi: 1200,
+  Rocksplitter: 1500,
+  Tractor: 800,
+  Tipper: 1000,
+  Compressor: 800
+};
+
+const PROGRESS_STATUSES = new Set(['STARTED', 'REACHED_SITE', 'IN_PROGRESS']);
+
+const roundCurrency = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return parseFloat(Math.max(0, parsed).toFixed(2));
+};
+
+const getRateFromType = (type) => {
+  if (!type) return DEFAULT_HOURLY_RATE;
+  return VEHICLE_TYPE_HOURLY_RATE[type] || DEFAULT_HOURLY_RATE;
+};
+
+const getDurationHours = (startTime, endTime) => {
+  if (!startTime || !endTime) return 0;
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const durationMs = end - start;
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return 0;
+  return roundCurrency(durationMs / (1000 * 60 * 60));
+};
+
+const buildBillingSummary = (workRequest, assignment = null) => {
+  const status = String(workRequest?.status || '').toUpperCase();
+  const expectedHours = roundCurrency(workRequest?.expectedDuration || 0);
+
+  const assignedVehicleRate = Number(workRequest?.assignedVehicle?.hourlyRate || 0);
+  const assignmentVehicleRate = Number(assignment?.vehicle?.hourlyRate || 0);
+  const fallbackRate = getRateFromType(workRequest?.preferredVehicleType);
+  const hourlyRate = roundCurrency(assignedVehicleRate || assignmentVehicleRate || fallbackRate);
+
+  const calculatedEstimatedCost = roundCurrency(expectedHours * hourlyRate);
+  const storedEstimatedCost = roundCurrency(workRequest?.estimatedCost || 0);
+  const estimatedCost = storedEstimatedCost > 0 ? storedEstimatedCost : calculatedEstimatedCost;
+
+  let actualHoursWorked = roundCurrency(assignment?.actualDuration || 0);
+  if (!actualHoursWorked) {
+    actualHoursWorked = getDurationHours(assignment?.startTime, assignment?.endTime);
+  }
+
+  if (!actualHoursWorked && PROGRESS_STATUSES.has(String(assignment?.status || '').toUpperCase())) {
+    actualHoursWorked = getDurationHours(assignment?.startTime, new Date());
+  }
+
+  const calculatedActualCost = roundCurrency(actualHoursWorked * hourlyRate);
+  const storedActualCost = roundCurrency(workRequest?.actualCost || 0);
+
+  let payableAmount = estimatedCost;
+  if (status === 'COMPLETED') {
+    payableAmount = calculatedActualCost || storedActualCost || estimatedCost;
+  } else if (status === 'IN_PROGRESS' || PROGRESS_STATUSES.has(String(assignment?.status || '').toUpperCase())) {
+    payableAmount = calculatedActualCost || estimatedCost;
+  }
+
+  return {
+    hourlyRate,
+    expectedHours,
+    actualHoursWorked,
+    estimatedCost,
+    calculatedEstimatedCost,
+    calculatedActualCost,
+    storedActualCost,
+    payableAmount: roundCurrency(payableAmount),
+    isFinal: status === 'COMPLETED'
+  };
+};
+
+const attachBillingSummary = (workRequestDoc, assignment = null) => {
+  const workRequest = typeof workRequestDoc?.toObject === 'function'
+    ? workRequestDoc.toObject()
+    : { ...workRequestDoc };
+
+  const billingSummary = buildBillingSummary(workRequest, assignment);
+  workRequest.billingSummary = billingSummary;
+  workRequest.payableAmount = billingSummary.payableAmount;
+  workRequest.hourlyRate = billingSummary.hourlyRate;
+  workRequest.actualHoursWorked = billingSummary.actualHoursWorked;
+
+  if (billingSummary.isFinal && billingSummary.calculatedActualCost > 0) {
+    workRequest.actualCost = billingSummary.calculatedActualCost;
+  }
+
+  if (!workRequest.estimatedCost || workRequest.estimatedCost <= 0) {
+    workRequest.estimatedCost = billingSummary.estimatedCost;
+  }
+
+  return workRequest;
+};
+
 class WorkRequestController {
   async createWorkRequest(req, res) {
     try {
@@ -22,7 +125,8 @@ class WorkRequestController {
 
       await workRequest.populate('customer', 'name phone email');
 
-      const estimatedCost = workRequest.expectedDuration * 1000;
+      const preferredRate = getRateFromType(workRequest.preferredVehicleType);
+      const estimatedCost = roundCurrency(workRequest.expectedDuration * preferredRate);
       workRequest.estimatedCost = estimatedCost;
       await workRequest.save();
 
@@ -64,17 +168,45 @@ class WorkRequestController {
 
       const workRequests = await WorkRequest.find(filter)
         .populate('customer', 'name phone email')
-        .populate('assignedVehicle', 'vehicleNumber type hourlyRate')
-        .populate('assignedDriver', 'name phone')
+        .populate('assignedVehicle', 'vehicleNumber type hourlyRate status lastOdometer driver')
+        .populate('assignedDriver', 'name phone email')
+        .populate({
+          path: 'assignedVehicle',
+          populate: {
+            path: 'driver',
+            select: 'name phone email'
+          }
+        })
         .skip(skip)
         .limit(parseInt(limit))
         .sort({ createdAt: -1 });
+
+      const workRequestIds = workRequests.map((wr) => wr._id);
+      const assignments = workRequestIds.length
+        ? await WorkAssignment.find({ workRequest: { $in: workRequestIds } })
+          .select('workRequest status startTime endTime actualDuration updatedAt completedAt vehicle')
+          .populate('vehicle', 'hourlyRate type')
+        : [];
+
+      const latestAssignmentByRequest = new Map();
+      assignments.forEach((assignment) => {
+        const key = String(assignment.workRequest);
+        const existing = latestAssignmentByRequest.get(key);
+        if (!existing || new Date(assignment.updatedAt || 0) > new Date(existing.updatedAt || 0)) {
+          latestAssignmentByRequest.set(key, assignment);
+        }
+      });
+
+      const workRequestsWithBilling = workRequests.map((wr) => {
+        const assignment = latestAssignmentByRequest.get(String(wr._id));
+        return attachBillingSummary(wr, assignment);
+      });
 
       const total = await WorkRequest.countDocuments(filter);
 
       res.json({
         success: true,
-        data: workRequests,
+        data: workRequestsWithBilling,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
@@ -102,8 +234,15 @@ class WorkRequestController {
 
       const workRequest = await WorkRequest.findById(req.params.id)
         .populate('customer', 'name phone email')
-        .populate('assignedVehicle', 'vehicleNumber type hourlyRate')
-        .populate('assignedDriver', 'name phone')
+        .populate('assignedVehicle', 'vehicleNumber type hourlyRate status lastOdometer driver')
+        .populate('assignedDriver', 'name phone email')
+        .populate({
+          path: 'assignedVehicle',
+          populate: {
+            path: 'driver',
+            select: 'name phone email'
+          }
+        })
         .populate('photos');
 
       if (!workRequest) {
@@ -114,7 +253,8 @@ class WorkRequestController {
       }
 
       const assignment = await WorkAssignment.findOne({ workRequest: workRequest._id })
-        .select('status startTime endTime locationTrail updatedAt');
+        .select('status startTime endTime actualDuration locationTrail updatedAt vehicle')
+        .populate('vehicle', 'hourlyRate type');
 
       const latestLocation = assignment?.locationTrail?.length
         ? assignment.locationTrail[assignment.locationTrail.length - 1]
@@ -122,9 +262,13 @@ class WorkRequestController {
           ? { ...assignment.location, timestamp: assignment.updatedAt }
           : null);
 
-      const payload = workRequest.toObject();
+      const payload = attachBillingSummary(workRequest, assignment);
       payload.assignmentStatus = assignment?.status || null;
       payload.liveLocation = latestLocation;
+      payload.assignmentStartTime = assignment?.startTime || null;
+      payload.assignmentEndTime = assignment?.endTime || null;
+      payload.assignmentUpdatedAt = assignment?.updatedAt || null;
+      payload.assignmentCompletedAt = assignment?.completedAt || null;
 
       res.json({
         success: true,
@@ -159,7 +303,7 @@ class WorkRequestController {
       }
 
       const vehicle = await Vehicle.findById(vehicleId);
-      if (!vehicle || vehicle.status !== 'AVAILABLE') {
+      if (!vehicle || !vehicle.isActive) {
         return res.status(400).json({
           success: false,
           message: 'Vehicle not available'
@@ -211,10 +355,18 @@ class WorkRequestController {
       workRequest.status = 'ASSIGNED';
       await workRequest.save();
 
-         await workRequest.populate('assignedVehicle', 'vehicleNumber type hourlyRate');
-      vehicle.driver = driverId;
-      vehicle.status = 'ASSIGNED';
-      await vehicle.save();
+      const reservedVehicle = await reserveVehicleForAssignment(vehicleId, driverId);
+      if (!reservedVehicle) {
+        workRequest.assignedVehicle = undefined;
+        workRequest.assignedDriver = undefined;
+        workRequest.status = 'PENDING';
+        await workRequest.save();
+
+        return res.status(409).json({
+          success: false,
+          message: 'Vehicle was just assigned to another work. Please pick a different vehicle.'
+        });
+      }
 
       const workAssignment = new WorkAssignment({
         workRequest: workRequest._id,
@@ -227,8 +379,8 @@ class WorkRequestController {
       await workAssignment.save();
 
       await workRequest.populate('customer', 'name phone email');
-      await workRequest.populate('assignedVehicle', 'vehicleNumber make model type hourlyRate');
-      await workRequest.populate('assignedDriver', 'name phone');
+      await workRequest.populate('assignedVehicle', 'vehicleNumber type hourlyRate status lastOdometer');
+      await workRequest.populate('assignedDriver', 'name phone email');
 
       logger.info(`Work assigned successfully: ${workRequest._id} to driver ${driverId}`);
 
@@ -258,26 +410,54 @@ class WorkRequestController {
         });
       }
 
+      if (!workRequest.customerMobile) {
+        const customer = await require('../models/User').findById(workRequest.customer).select('phone');
+        if (customer?.phone) {
+          workRequest.customerMobile = customer.phone;
+        }
+      }
+
       workRequest.status = status;
       if (status === 'COMPLETED') {
         workRequest.completedAt = new Date();
-        workRequest.actualCost = workRequest.estimatedCost;
+        const provisionalBilling = buildBillingSummary(workRequest, null);
+        workRequest.actualCost = provisionalBilling.payableAmount;
       }
       if (notes) workRequest.notes = notes;
       
       await workRequest.save();
 
-      if (status === 'COMPLETED' && workRequest.assignedVehicle) {
-        const vehicle = await Vehicle.findById(workRequest.assignedVehicle);
-        if (vehicle) {
-          vehicle.status = 'AVAILABLE';
-          await vehicle.save();
+      if ((status === 'COMPLETED' || status === 'CANCELLED') && workRequest.assignedVehicle) {
+        const assignment = await WorkAssignment.findOne({
+          workRequest: workRequest._id,
+          status: { $in: ['ASSIGNED', 'STARTED', 'REACHED_SITE', 'IN_PROGRESS'] }
+        }).populate('vehicle', 'hourlyRate type');
+
+        if (assignment) {
+          assignment.status = status === 'COMPLETED' ? 'COMPLETED' : 'CANCELLED';
+          assignment.endTime = new Date();
+          assignment.updatedAt = new Date();
+          if (status === 'COMPLETED') {
+            assignment.completedAt = new Date();
+          }
+          await assignment.save();
+        }
+
+        await releaseVehicleIfNoActiveAssignments(workRequest.assignedVehicle);
+
+        if (status === 'COMPLETED') {
+          const billingSummary = buildBillingSummary(workRequest, assignment);
+          workRequest.actualCost =
+            billingSummary.calculatedActualCost ||
+            billingSummary.storedActualCost ||
+            billingSummary.estimatedCost;
+          await workRequest.save();
         }
       }
 
       await workRequest.populate('customer', 'name phone email');
-      await workRequest.populate('assignedVehicle', 'vehicleNumber make model type hourlyRate');
-      await workRequest.populate('assignedDriver', 'name phone');
+      await workRequest.populate('assignedVehicle', 'vehicleNumber type hourlyRate status lastOdometer');
+      await workRequest.populate('assignedDriver', 'name phone email');
 
       res.json({
         success: true,
@@ -309,8 +489,8 @@ class WorkRequestController {
       await workRequest.save();
 
       await workRequest.populate('customer', 'name phone email');
-      await workRequest.populate('assignedVehicle', 'vehicleNumber make model type hourlyRate');
-      await workRequest.populate('assignedDriver', 'name phone');
+      await workRequest.populate('assignedVehicle', 'vehicleNumber type hourlyRate status lastOdometer');
+      await workRequest.populate('assignedDriver', 'name phone email');
 
       res.json({
         success: true,
@@ -347,13 +527,34 @@ class WorkRequestController {
       }
 
       const workRequests = await WorkRequest.find({ customer: customerId })
-        .populate('assignedVehicle', 'vehicleNumber make model type hourlyRate')
-        .populate('assignedDriver', 'name phone')
+        .populate('assignedVehicle', 'vehicleNumber type hourlyRate status lastOdometer')
+        .populate('assignedDriver', 'name phone email')
         .sort({ createdAt: -1 });
+
+      const workRequestIds = workRequests.map((wr) => wr._id);
+      const assignments = workRequestIds.length
+        ? await WorkAssignment.find({ workRequest: { $in: workRequestIds } })
+          .select('workRequest status startTime endTime actualDuration updatedAt completedAt vehicle')
+          .populate('vehicle', 'hourlyRate type')
+        : [];
+
+      const latestAssignmentByRequest = new Map();
+      assignments.forEach((assignment) => {
+        const key = String(assignment.workRequest);
+        const existing = latestAssignmentByRequest.get(key);
+        if (!existing || new Date(assignment.updatedAt || 0) > new Date(existing.updatedAt || 0)) {
+          latestAssignmentByRequest.set(key, assignment);
+        }
+      });
+
+      const workRequestsWithBilling = workRequests.map((wr) => {
+        const assignment = latestAssignmentByRequest.get(String(wr._id));
+        return attachBillingSummary(wr, assignment);
+      });
 
       res.json({
         success: true,
-        data: workRequests
+        data: workRequestsWithBilling
       });
     } catch (error) {
       logger.error('Customer work requests fetch error:', error);
@@ -368,6 +569,12 @@ class WorkRequestController {
     try {
       const { date } = req.query;
       const targetDate = date ? new Date(date) : new Date();
+      if (Number.isNaN(targetDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format'
+        });
+      }
       const startDate = new Date(targetDate);
       startDate.setHours(0, 0, 0, 0);
       const endDate = new Date(targetDate);
@@ -380,10 +587,14 @@ class WorkRequestController {
       const completedWork = await WorkRequest.find({
         status: 'COMPLETED',
         completedAt: { $gte: startDate, $lte: endDate }
-      }).populate('assignedVehicle', 'vehicleNumber make model');
+      }).populate('assignedVehicle', 'vehicleNumber type');
 
-      const totalRevenue = completedWork.reduce((sum, wr) => sum + wr.actualCost, 0);
-      const totalVehicles = new Set(completedWork.map(wr => wr.assignedVehicle._id)).size;
+      const totalRevenue = completedWork.reduce((sum, wr) => sum + (wr.actualCost || 0), 0);
+      const totalVehicles = new Set(
+        completedWork
+          .map(wr => wr.assignedVehicle?._id?.toString())
+          .filter(Boolean)
+      ).size;
 
       res.json({
         success: true,
@@ -409,8 +620,18 @@ class WorkRequestController {
   async getMonthlyReport(req, res) {
     try {
       const { year, month } = req.query;
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+      const numericYear = Number(year);
+      const numericMonth = Number(month);
+
+      if (!Number.isInteger(numericYear) || !Number.isInteger(numericMonth) || numericMonth < 1 || numericMonth > 12) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid year or month'
+        });
+      }
+
+      const startDate = new Date(numericYear, numericMonth - 1, 1);
+      const endDate = new Date(numericYear, numericMonth, 0, 23, 59, 59, 999);
 
       const workRequests = await WorkRequest.find({
         createdAt: { $gte: startDate, $lte: endDate }
@@ -419,22 +640,26 @@ class WorkRequestController {
       const completedWork = await WorkRequest.find({
         status: 'COMPLETED',
         completedAt: { $gte: startDate, $lte: endDate }
-      }).populate('assignedVehicle', 'vehicleNumber make model');
+      }).populate('assignedVehicle', 'vehicleNumber type');
 
-      const totalRevenue = completedWork.reduce((sum, wr) => sum + wr.actualCost, 0);
-      const totalVehicles = new Set(completedWork.map(wr => wr.assignedVehicle._id)).size;
+      const totalRevenue = completedWork.reduce((sum, wr) => sum + (wr.actualCost || 0), 0);
+      const totalVehicles = new Set(
+        completedWork
+          .map(wr => wr.assignedVehicle?._id?.toString())
+          .filter(Boolean)
+      ).size;
       
       const revenueByDay = {};
       completedWork.forEach(wr => {
         const day = wr.completedAt.toISOString().split('T')[0];
-        revenueByDay[day] = (revenueByDay[day] || 0) + wr.actualCost;
+        revenueByDay[day] = (revenueByDay[day] || 0) + (wr.actualCost || 0);
       });
 
       res.json({
         success: true,
         data: {
-          year,
-          month,
+          year: numericYear,
+          month: numericMonth,
           totalWorkRequests: workRequests.length,
           completedWork: completedWork.length,
           totalRevenue,

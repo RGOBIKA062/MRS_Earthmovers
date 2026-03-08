@@ -65,7 +65,7 @@ class NotificationService {
       <p>You have been assigned a new work order:</p>
       <ul>
         <li><strong>Work Type:</strong> ${workAssignment.workRequest.workType}</li>
-        <li><strong>Vehicle:</strong> ${workAssignment.vehicle.make} ${workAssignment.vehicle.model}</li>
+        <li><strong>Vehicle:</strong> ${workAssignment.vehicle.type} - ${workAssignment.vehicle.vehicleNumber}</li>
         <li><strong>Start Time:</strong> ${new Date(workAssignment.startTime).toLocaleString()}</li>
         <li><strong>Location:</strong> ${workAssignment.workRequest.location.address}</li>
         <li><strong>Estimated Duration:</strong> ${workAssignment.workRequest.expectedDuration} hours</li>
@@ -85,7 +85,7 @@ class NotificationService {
       <p>Your work order has been completed:</p>
       <ul>
         <li><strong>Work Type:</strong> ${workRequest.workType}</li>
-        <li><strong>Assigned Vehicle:</strong> ${workRequest.assignedVehicle.make} ${workRequest.assignedVehicle.model}</li>
+        <li><strong>Assigned Vehicle:</strong> ${workRequest.assignedVehicle.type} - ${workRequest.assignedVehicle.vehicleNumber}</li>
         <li><strong>Driver:</strong> ${workRequest.assignedDriver.name}</li>
         <li><strong>Start Date:</strong> ${new Date(workRequest.startDate).toLocaleDateString()}</li>
         <li><strong>End Date:</strong> ${new Date(workRequest.endDate).toLocaleDateString()}</li>

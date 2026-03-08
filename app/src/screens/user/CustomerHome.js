@@ -8,6 +8,25 @@ import { PREMIUM_LIGHT } from '../../styles/tokens';
 import Entrance from '../../components/Entrance';
 import AnimatedPressable from '../../components/AnimatedPressable';
 
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatRupees = (value) => {
+  const amount = toNumber(value);
+  return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+};
+
+const getPayableAmount = (workRequest) => {
+  return toNumber(
+    workRequest?.billingSummary?.payableAmount ??
+    workRequest?.payableAmount ??
+    (workRequest?.status === 'COMPLETED' ? workRequest?.actualCost : workRequest?.estimatedCost) ??
+    0
+  );
+};
+
 const CustomerHome = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -38,7 +57,7 @@ const CustomerHome = ({ navigation }) => {
       const pendingRequests = items.filter(wr => wr.status === 'PENDING').length;
       const totalSpent = items
         .filter(wr => wr.status === 'COMPLETED')
-        .reduce((sum, wr) => sum + (wr.actualCost || 0), 0);
+        .reduce((sum, wr) => sum + getPayableAmount(wr), 0);
 
       setDashboardStats({
         totalRequests,
@@ -122,12 +141,22 @@ const CustomerHome = ({ navigation }) => {
       </Text>
       
       <Text style={styles.workRequestDuration}>
-        💰 Estimated: ₹{item.estimatedCost}
+        💰 Estimated: {formatRupees(item.estimatedCost)}
       </Text>
+
+      <Text style={styles.workRequestDuration}>
+        💳 Payable: {formatRupees(getPayableAmount(item))}
+      </Text>
+
+      {toNumber(item?.billingSummary?.hourlyRate) > 0 ? (
+        <Text style={styles.workRequestDuration}>
+          🧮 Rate: {formatRupees(item.billingSummary.hourlyRate)}/hr
+        </Text>
+      ) : null}
 
       {item.assignedVehicle && (
         <Text style={styles.workRequestLocation}>
-          🚛 {item.assignedVehicle.make} {item.assignedVehicle.model}
+          🚛 {item.assignedVehicle.type} - {item.assignedVehicle.vehicleNumber}
         </Text>
       )}
 
@@ -195,7 +224,7 @@ const CustomerHome = ({ navigation }) => {
                     <Text style={styles.statisticLabel}>Pending</Text>
                   </View>
                   <View style={styles.statisticCard}>
-                    <Text style={styles.statisticValue}>₹{dashboardStats.totalSpent}</Text>
+                    <Text style={styles.statisticValue}>{formatRupees(dashboardStats.totalSpent)}</Text>
                     <Text style={styles.statisticLabel}>Total Spent</Text>
                   </View>
                 </View>

@@ -1,5 +1,6 @@
 const Vehicle = require('../models/Vehicle');
 const winston = require('winston');
+const { releaseVehicleIfNoActiveAssignments } = require('../services/vehicleAvailabilityService');
 
 const logger = winston.createLogger({
   level: 'info',
@@ -153,14 +154,36 @@ class VehicleController {
 
   async getAvailableVehicles(req, res) {
     try {
+      // Self-heal stale statuses so completed/cancelled work frees vehicles for customer list.
+      const assignedVehicles = await Vehicle.find({
+        status: 'ASSIGNED',
+        isActive: true
+      }).select('_id');
+
+      if (assignedVehicles.length) {
+        await Promise.all(
+          assignedVehicles.map((vehicle) => releaseVehicleIfNoActiveAssignments(vehicle._id))
+        );
+      }
+
       const vehicles = await Vehicle.find({ 
         status: 'AVAILABLE',
         isActive: true 
       }).select('vehicleNumber type hourlyRate');
 
+      const countsByType = vehicles.reduce((acc, vehicle) => {
+        const key = vehicle.type;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+
       res.json({
         success: true,
-        data: vehicles
+        data: vehicles,
+        meta: {
+          totalAvailable: vehicles.length,
+          countsByType
+        }
       });
     } catch (error) {
       logger.error('Available vehicles fetch error:', error);

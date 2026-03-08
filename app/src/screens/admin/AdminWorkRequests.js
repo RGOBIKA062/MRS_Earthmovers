@@ -11,6 +11,7 @@ const AdminWorkRequests = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [workRequests, setWorkRequests] = useState([]);
   const [filters, setFilters] = useState({ status: '', search: '' });
+  const [currentPage, setCurrentPage] = useState(0);
 
   const { user } = useAuth();
 
@@ -52,6 +53,7 @@ const AdminWorkRequests = ({ navigation }) => {
 
   const handleFilterChange = (filterType, value) => {
     setFilters(prev => ({ ...prev, [filterType]: value }));
+    setCurrentPage(0); // Reset to first page when filter changes
   };
 
   const getStatusColor = (status) => {
@@ -78,70 +80,262 @@ const AdminWorkRequests = ({ navigation }) => {
 
   const renderWorkRequest = ({ item }) => (
     <View style={styles.workRequestCard}>
+      {/* Header with Type and Status */}
       <View style={styles.workRequestHeader}>
-        <Text style={styles.workRequestType}>{item.workType}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.workRequestType}>{item.workType}</Text>
+          <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.muted, marginTop: 4 }}>
+            ID: {item._id?.substring(0, 8) || 'N/A'}
+          </Text>
+        </View>
         <View style={{
           backgroundColor: getStatusColor(item.status),
-          paddingHorizontal: 8,
-          paddingVertical: 4,
+          paddingHorizontal: 12,
+          paddingVertical: 6,
           borderRadius: 12
         }}>
-          <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>
+          <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>
             {getStatusText(item.status)}
           </Text>
         </View>
       </View>
-      
-      <Text style={styles.workRequestLocation}>
-        📍 {item.location.address}
-      </Text>
-      
-      <Text style={styles.workRequestDuration}>
-        ⏱️ Duration: {item.expectedDuration} hours
-      </Text>
-      
-      {item.customer && (
-        <Text style={styles.workRequestLocation}>
-          👤 {item.customer.name} - {item.customer.phone}
-        </Text>
-      )}
-      
-      {item.assignedVehicle && (
-        <Text style={styles.workRequestLocation}>
-          🚛 {item.assignedVehicle.make} {item.assignedVehicle.model} ({item.assignedVehicle.vehicleNumber})
-        </Text>
-      )}
-      
-      {item.assignedDriver && (
-        <Text style={styles.workRequestLocation}>
-          👨‍💼 {item.assignedDriver.name}
-        </Text>
-      )}
 
-      {item.status === 'PENDING' && (
-        <View style={{ flexDirection: 'row', marginTop: 12 }}>
-          <TouchableOpacity
-            style={[styles.button, { flex: 1, marginRight: 8 }]}
-            onPress={() => navigation.navigate('AdminAssignWork', { workRequestId: item._id })}
-          >
-            <Text style={styles.buttonText}>Assign</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.button, styles.buttonSecondary, { flex: 1 }]}
-            onPress={() => navigation.navigate('CustomerTrackWork', { workRequestId: item._id })}
-          >
-            <Text style={styles.buttonTextOnDark}>View</Text>
-          </TouchableOpacity>
+      {/* Location Details */}
+      <View style={{ marginTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: PREMIUM_LIGHT.border }}>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: PREMIUM_LIGHT.text, marginBottom: 6 }}>
+          📍 Location
+        </Text>
+        <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.text }}>{item.location.address}</Text>
+        {item.location.pincode && (
+          <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted, marginTop: 4 }}>
+            Pincode: {item.location.pincode}
+          </Text>
+        )}
+      </View>
+
+      {/* Customer Details */}
+      {item.customer && (
+        <View style={{ marginTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: PREMIUM_LIGHT.border }}>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: PREMIUM_LIGHT.text, marginBottom: 6 }}>
+            👤 Customer
+          </Text>
+          <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.text, fontWeight: '500' }}>{item.customer.name}</Text>
+          <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted, marginTop: 2 }}>📞 {item.customer.phone}</Text>
+          {item.customer.email && (
+            <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted, marginTop: 2 }}>📧 {item.customer.email}</Text>
+          )}
         </View>
       )}
 
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-        <Text style={{ fontSize: 14, color: PREMIUM_LIGHT.muted }}>
-          Created: {new Date(item.createdAt).toLocaleDateString()}
+      {/* Work Details */}
+      <View style={{ marginTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: PREMIUM_LIGHT.border }}>
+        <Text style={{ fontSize: 13, fontWeight: '600', color: PREMIUM_LIGHT.text, marginBottom: 8 }}>
+          🔧 Work Details
         </Text>
-        <Text style={{ fontSize: 14, color: PREMIUM_LIGHT.accent, fontWeight: 'bold' }}>
-          ₹{item.estimatedCost}
-        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted }}>Duration</Text>
+            <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.text, fontWeight: '500', marginTop: 2 }}>
+              {item.expectedDuration} hours
+            </Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted }}>Estimated Cost</Text>
+            <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.accent, fontWeight: '600', marginTop: 2 }}>
+              ₹{item.estimatedCost || 0}
+            </Text>
+          </View>
+        </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted }}>Start Date</Text>
+            <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.text, marginTop: 2 }}>
+              {new Date(item.startDate).toLocaleDateString('en-IN', { 
+                day: 'numeric', 
+                month: 'short', 
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted }}>End Date</Text>
+            <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.text, marginTop: 2 }}>
+              {new Date(item.endDate).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              })}
+            </Text>
+          </View>
+        </View>
+        {item.description && (
+          <View style={{ marginTop: 8 }}>
+            <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted }}>Description</Text>
+            <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.text, marginTop: 4, lineHeight: 16 }}>
+              {item.description}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Vehicle & Driver Assignment (if assigned) */}
+      {(item.assignedVehicle || item.assignedDriver || item.preferredVehicleType) && (
+        <View style={{ marginTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: PREMIUM_LIGHT.border }}>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: PREMIUM_LIGHT.text, marginBottom: 8 }}>
+            🚛 Assigned Resources & Preferences
+          </Text>
+
+          {item.preferredVehicleType && !item.assignedVehicle && (
+            <View style={{ marginBottom: 10 }}>
+              <Text style={{ fontSize: 12, fontWeight: '500', color: PREMIUM_LIGHT.text, marginBottom: 6 }}>Preferred Vehicle Type</Text>
+              <View style={{
+                backgroundColor: '#FFF3E0',
+                borderRadius: 8,
+                padding: 10,
+                borderLeftWidth: 4,
+                borderLeftColor: '#FF9800'
+              }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#FF6F00' }}>
+                  ⭐ {item.preferredVehicleType}
+                </Text>
+                <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted, marginTop: 4 }}>
+                  Customer's preferred vehicle type (not yet assigned)
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {item.assignedVehicle && (
+            <View style={{ marginBottom: 10 }}>
+              <Text style={{ fontSize: 12, fontWeight: '500', color: PREMIUM_LIGHT.text }}>Vehicle</Text>
+              <View style={{ 
+                backgroundColor: PREMIUM_LIGHT.accentSoft, 
+                borderRadius: 8, 
+                padding: 10, 
+                marginTop: 6,
+                borderLeftWidth: 4,
+                borderLeftColor: PREMIUM_LIGHT.accent
+              }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: PREMIUM_LIGHT.accent }}>
+                      {item.assignedVehicle.type}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.text, marginTop: 4 }}>
+                      📋 {item.assignedVehicle.vehicleNumber}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.text, marginTop: 2 }}>
+                      💰 ₹{item.assignedVehicle.hourlyRate}/hour
+                    </Text>
+                    {item.preferredVehicleType && item.assignedVehicle.type === item.preferredVehicleType && (
+                      <Text style={{ fontSize: 10, color: '#4CAF50', marginTop: 4, fontWeight: '600' }}>
+                        ✓ Matches preferred type
+                      </Text>
+                    )}
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <View style={{
+                      backgroundColor: item.assignedVehicle.status === 'AVAILABLE' ? '#4CAF50' : '#FF9800',
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 6
+                    }}>
+                      <Text style={{ fontSize: 10, color: '#fff', fontWeight: '600' }}>
+                        {item.assignedVehicle.status}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
+          {item.assignedDriver && (
+            <View>
+              <Text style={{ fontSize: 12, fontWeight: '500', color: PREMIUM_LIGHT.text }}>Driver</Text>
+              <View style={{
+                backgroundColor: PREMIUM_LIGHT.accentSoft,
+                borderRadius: 8,
+                padding: 10,
+                marginTop: 6,
+                borderLeftWidth: 4,
+                borderLeftColor: PREMIUM_LIGHT.info
+              }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: PREMIUM_LIGHT.info }}>
+                  {item.assignedDriver.name}
+                </Text>
+                <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.text, marginTop: 4 }}>
+                  📞 {item.assignedDriver.phone}
+                </Text>
+                {item.assignedDriver.email && (
+                  <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.text, marginTop: 2 }}>
+                    📧 {item.assignedDriver.email}
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Payment Status */}
+      {item.paymentStatus && (
+        <View style={{ marginTop: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: PREMIUM_LIGHT.border }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ fontSize: 12, fontWeight: '500', color: PREMIUM_LIGHT.text }}>Payment Status</Text>
+            <View style={{
+              backgroundColor: item.paymentStatus === 'COMPLETED' ? '#4CAF50' : 
+                               item.paymentStatus === 'PARTIAL' ? '#FF9800' : 
+                               '#F44336',
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 8
+            }}>
+              <Text style={{ fontSize: 11, color: '#fff', fontWeight: '600' }}>
+                {item.paymentStatus}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Action Buttons */}
+      <View style={{ marginTop: 10, flexDirection: 'row', gap: 6 }}>
+        {item.status === 'PENDING' && (
+          <>
+            <TouchableOpacity
+              style={[styles.button, { flex: 1, paddingVertical: 10, paddingHorizontal: 10 }]}
+              onPress={() => navigation.navigate('AdminAssignWork', { workRequestId: item._id })}
+            >
+              <Text style={[styles.buttonText, { fontSize: 14 }]}>Assign</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, styles.buttonSecondary, { flex: 1, paddingVertical: 10, paddingHorizontal: 10 }]}
+              onPress={() => navigation.navigate('WorkRequestDetail', { workRequestId: item._id })}
+            >
+              <Text style={[styles.buttonTextOnDark, { fontSize: 14 }]}>View Details</Text>
+            </TouchableOpacity>
+          </>
+        )}
+        {(item.status === 'ASSIGNED' || item.status === 'IN_PROGRESS') && (
+          <TouchableOpacity
+            style={[styles.button, { flex: 1, paddingVertical: 10, paddingHorizontal: 10 }]}
+            onPress={() => navigation.navigate('WorkRequestDetail', { workRequestId: item._id })}
+          >
+            <Text style={[styles.buttonText, { fontSize: 14 }]}>View & Update</Text>
+          </TouchableOpacity>
+        )}
+        {item.status === 'COMPLETED' && (
+          <TouchableOpacity
+            style={[styles.button, styles.buttonSecondary, { flex: 1, paddingVertical: 10, paddingHorizontal: 10 }]}
+            onPress={() => navigation.navigate('WorkRequestDetail', { workRequestId: item._id })}
+          >
+            <Text style={[styles.buttonTextOnDark, { fontSize: 14 }]}>View Summary</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -204,19 +398,70 @@ const AdminWorkRequests = ({ navigation }) => {
           <Text style={styles.loadingText}>Loading work requests...</Text>
         </View>
       ) : (
-        <View style={{ flex: 1, padding: 16 }}>
-          <FlatList
-            data={workRequests}
-            renderItem={renderWorkRequest}
-            keyExtractor={(item) => item._id}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>No work requests found</Text>
-              </View>
-            }
-          />
-        </View>
+        <ScrollView 
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: 16 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
+          {workRequests.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>No work requests found</Text>
+            </View>
+          ) : (
+            <View>
+              {workRequests.slice(currentPage * 4, (currentPage * 4) + 4).map((item) => (
+                <View key={item._id}>
+                  {renderWorkRequest({ item })}
+                </View>
+              ))}
+              
+              {workRequests.length > 4 && (
+                <View style={{ 
+                  flexDirection: 'row', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between', 
+                  marginTop: 16,
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  backgroundColor: '#F5F5F5',
+                  borderRadius: 8
+                }}>
+                  <TouchableOpacity 
+                    onPress={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                    disabled={currentPage === 0}
+                    style={{ 
+                      padding: 8,
+                      opacity: currentPage === 0 ? 0.3 : 1
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 20, color: PREMIUM_LIGHT.accent, fontWeight: 'bold' }}>
+                      ◀
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.text, fontWeight: '600' }}>
+                    Showing {currentPage * 4 + 1}-{Math.min((currentPage + 1) * 4, workRequests.length)} of {workRequests.length} requests
+                  </Text>
+                  
+                  <TouchableOpacity 
+                    onPress={() => setCurrentPage(Math.min(Math.floor((workRequests.length - 1) / 4), currentPage + 1))}
+                    disabled={currentPage >= Math.floor((workRequests.length - 1) / 4)}
+                    style={{ 
+                      padding: 8,
+                      opacity: currentPage >= Math.floor((workRequests.length - 1) / 4) ? 0.3 : 1
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 20, color: PREMIUM_LIGHT.accent, fontWeight: 'bold' }}>
+                      ▶
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+        </ScrollView>
       )}
     </View>
   );

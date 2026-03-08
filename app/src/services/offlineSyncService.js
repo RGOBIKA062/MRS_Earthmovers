@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import apiService from './apiService';
 
 class OfflineSyncService {
@@ -145,9 +146,21 @@ class OfflineSyncService {
   }
 
   async syncPhotoProof(item) {
+    // Fix for "...fromPath-Could not open file" errors by preserving valid URI schemes.
+    let fileUri = String(item?.data?.file?.uri || '');
+    if (
+      Platform.OS === 'android' &&
+      fileUri &&
+      !fileUri.startsWith('file://') &&
+      !fileUri.startsWith('content://') &&
+      !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(fileUri)
+    ) {
+      fileUri = `file://${fileUri}`;
+    }
+
     const formData = new FormData();
     formData.append('file', {
-      uri: item.data.file.uri,
+      uri: fileUri,
       type: item.data.file.type,
       name: item.data.file.name
     });

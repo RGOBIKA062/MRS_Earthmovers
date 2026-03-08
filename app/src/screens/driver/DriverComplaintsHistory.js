@@ -157,7 +157,7 @@ const DriverComplaintsHistory = ({ navigation }) => {
             <View>
               <Text style={localStyles.complaintType}>{item.type.replace(/_/g, ' ')}</Text>
               <Text style={localStyles.vehicleNumber}>
-                {item.vehicle?.vehicleNumber || 'Vehicle'} {item.vehicle?.make && `• ${item.vehicle.make}`}
+                {item.vehicle?.vehicleNumber || 'Vehicle'} {item.vehicle?.type && `• ${item.vehicle.type}`}
               </Text>
             </View>
           </View>
@@ -228,7 +228,7 @@ const DriverComplaintsHistory = ({ navigation }) => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>My Complaints</Text>
         <Text style={{ fontSize: 14, color: '#fff', textAlign: 'center', marginTop: 4 }}>
-          {complaints.length} total • {complaints.filter(c => c.status === 'RESOLVED').length} resolved
+          <Text>{complaints.length}</Text> total • <Text>{complaints.filter(c => c.status === 'RESOLVED').length}</Text> resolved
         </Text>
       </View>
 

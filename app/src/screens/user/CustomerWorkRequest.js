@@ -19,6 +19,25 @@ const WORK_TYPES = [
   { key: 'OTHERS', label: 'Others' },
 ];
 
+const VEHICLE_TYPE_HOURLY_RATE = {
+  JCB: 1000,
+  Hitachi: 1200,
+  Rocksplitter: 1500,
+  Tractor: 800,
+  Compressor: 800,
+  Tipper: 1000,
+};
+
+const toNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatRupees = (value) => {
+  const amount = toNumber(value);
+  return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+};
+
 const parseDateInput = (value) => {
   if (!value) return null;
   const parsed = new Date(value);
@@ -35,6 +54,7 @@ const CustomerWorkRequest = ({ navigation }) => {
     workType: 'EARTHWORK',
     customWorkType: '',
     vehiclesWanted: '',
+    customerMobile: '',
     description: '',
     latitude: 0,
     longitude: 0,
@@ -48,6 +68,9 @@ const CustomerWorkRequest = ({ navigation }) => {
   const { user } = useAuth();
   const { selectedLocation, clearSelectedLocation } = useLocationSelection();
 
+  const selectedVehicleRate = VEHICLE_TYPE_HOURLY_RATE[formData.vehiclesWanted] || 0;
+  const estimatedPayable = toNumber(formData.expectedDuration) * selectedVehicleRate;
+
   useEffect(() => {
     fetchAvailableVehicles();
   }, []);
@@ -59,17 +82,10 @@ const CustomerWorkRequest = ({ navigation }) => {
     const durationHours = Number(formData.expectedDuration) || 0;
     if (durationHours >= 1) {
       const computedEnd = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
-      let computedEndText = computedEnd.toISOString().slice(0, 16);
-      // If duration is less than 24hr, keep start and end date the same (different time)
-      if (durationHours < 24) {
-        const startDatePart = start.toISOString().slice(0, 10);
-        const endDatePart = computedEnd.toISOString().slice(0, 10);
-        if (startDatePart !== endDatePart) {
-          // Force end date to same day as start
-          computedEndText = start.toISOString().slice(0, 10) + computedEndText.slice(10);
-        }
-      }
-      if (computedEndText !== endDateInput) {
+      const computedEndText = computedEnd.toISOString().slice(0, 16);
+      
+      // Always ensure end date/time is after start date/time
+      if (computedEnd > start && computedEndText !== endDateInput) {
         setEndDateInput(computedEndText);
       }
     }
@@ -88,6 +104,11 @@ const CustomerWorkRequest = ({ navigation }) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleCustomerMobileChange = (value) => {
+    const digitsOnly = value.replace(/\D/g, '').slice(0, 10);
+    handleInputChange('customerMobile', digitsOnly);
+  };
+
   const handleWorkTypeSelect = (key) => {
     handleInputChange('workType', key);
     if (key === 'OTHERS') {
@@ -96,6 +117,35 @@ const CustomerWorkRequest = ({ navigation }) => {
       setShowCustomWorkType(false);
       handleInputChange('customWorkType', '');
     }
+  };
+
+  const handleStartDateChange = (text) => {
+    const newStartDateInput = text.replace(' ', 'T');
+    setStartDateInput(newStartDateInput);
+    
+    // Validate against end date
+    const newStart = parseDateInput(newStartDateInput);
+    const currentEnd = parseDateInput(endDateInput);
+    
+    if (newStart && currentEnd && newStart >= currentEnd) {
+      // Auto-adjust end date to be at least 1 hour after start
+      const adjustedEnd = new Date(newStart.getTime() + (formData.expectedDuration || 1) * 60 * 60 * 1000);
+      setEndDateInput(adjustedEnd.toISOString().slice(0, 16));
+    }
+  };
+
+  const handleEndDateChange = (text) => {
+    const newEndDateInput = text.replace(' ', 'T');
+    const newEnd = parseDateInput(newEndDateInput);
+    const currentStart = parseDateInput(startDateInput);
+    
+    // Only allow end date if it's after start date
+    if (newEnd && currentStart && newEnd <= currentStart) {
+      Alert.alert('Invalid Date', 'End date must be after start date');
+      return;
+    }
+    
+    setEndDateInput(newEndDateInput);
   };
 
   useFocusEffect(
@@ -135,6 +185,11 @@ const CustomerWorkRequest = ({ navigation }) => {
       return;
     }
 
+    if (!/^\d{10}$/.test(formData.customerMobile || '')) {
+      Alert.alert('Error', 'Customer mobile number must be exactly 10 digits');
+      return;
+    }
+
     if (!formData.address.trim()) {
       Alert.alert('Error', 'Please select a location');
       return;
@@ -167,9 +222,11 @@ const CustomerWorkRequest = ({ navigation }) => {
           latitude: formData.latitude,
           longitude: formData.longitude,
           address: formData.address,
-        }
+        },
+        preferredVehicleType: formData.vehiclesWanted || null,
       };
       delete workData.customWorkType;
+      delete workData.vehiclesWanted;
       console.log('Submitting work request:', workData);
       const response = await apiService.createWorkRequest(workData);
       Alert.alert('Success', 'Work request created successfully');
@@ -178,6 +235,7 @@ const CustomerWorkRequest = ({ navigation }) => {
         workType: 'EARTHWORK',
         customWorkType: '',
         vehiclesWanted: '',
+        customerMobile: '',
         description: '',
         latitude: 0,
         longitude: 0,
@@ -268,20 +326,26 @@ const CustomerWorkRequest = ({ navigation }) => {
                   <Picker.Item label="Select vehicle type" value="" />
                   <Picker.Item label="JCB (₹1000/hr)" value="JCB" />
                   <Picker.Item label="Hitachi (₹1200/hr)" value="Hitachi" />
-                  <Picker.Item label="Rocksplittor (₹1500/hr)" value="Rocksplittor" />
+                  <Picker.Item label="Rocksplitter (₹1500/hr)" value="Rocksplitter" />
                   <Picker.Item label="Tractor (₹800/hr)" value="Tractor" />
                   <Picker.Item label="Compressor (₹800/hr)" value="Compressor" />
-                  <Picker.Item label="Tipper (based on loads)" value="Tipper" />
+                  <Picker.Item label="Tipper (₹1000/hr approx.)" value="Tipper" />
                 </Picker>
               </View>
+
+              {selectedVehicleRate > 0 ? (
+                <Text style={[styles.subtitle, { marginBottom: 12 }]}> 
+                  Estimated Payable: {toNumber(formData.expectedDuration)} hrs × {formatRupees(selectedVehicleRate)}/hr = {formatRupees(estimatedPayable)}
+                </Text>
+              ) : null}
               <Text style={styles.label}>Customer Mobile Number *</Text>
               <TextInput
                 style={styles.input}
                 value={formData.customerMobile || ''}
-                onChangeText={(value) => handleInputChange('customerMobile', value)}
+                onChangeText={handleCustomerMobileChange}
                 placeholder="Enter mobile number"
                 keyboardType="phone-pad"
-                maxLength={15}
+                maxLength={10}
               />
 
             <Text style={styles.label}>Description *</Text>
@@ -306,7 +370,7 @@ const CustomerWorkRequest = ({ navigation }) => {
             <TextInput
               style={styles.input}
               value={startDateInput.replace('T', ' ')}
-              onChangeText={text => setStartDateInput(text.replace(' ', 'T'))}
+              onChangeText={handleStartDateChange}
               placeholder="2026-01-15 10:30"
               autoCapitalize="none"
               autoCorrect={false}
@@ -316,7 +380,7 @@ const CustomerWorkRequest = ({ navigation }) => {
             <TextInput
               style={styles.input}
               value={endDateInput.replace('T', ' ')}
-              onChangeText={text => setEndDateInput(text.replace(' ', 'T'))}
+              onChangeText={handleEndDateChange}
               placeholder="2026-01-15 18:30"
               autoCapitalize="none"
               autoCorrect={false}

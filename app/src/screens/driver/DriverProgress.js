@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, ActivityIndicator, Modal, TouchableOpacity, Alert, ScrollView, Image } from 'react-native';
+import { View, Text, ActivityIndicator, Modal, TouchableOpacity, Alert, ScrollView, Image, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import Constants from 'expo-constants';
@@ -52,10 +52,16 @@ const DriverProgress = ({ route, navigation }) => {
         ...data
       });
       setWorkAssignment(response.data.data);
-      // Keep details fresh (and populated) for UI rendering
       await fetchWorkAssignment();
+      return { success: true };
     } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update work status.';
       console.error('Error updating work status:', error);
+      Alert.alert('Status Update Failed', message);
+      return { success: false, message };
     }
   };
 
@@ -84,9 +90,21 @@ const DriverProgress = ({ route, navigation }) => {
 
     const resolvedLocation = geoTag || baseLocation || { latitude: 0, longitude: 0, address: '' };
 
+    // Fix for "...fromPath-Could not open file" errors by preserving valid URI schemes.
+    let fileUri = String(assetUri || '');
+    if (
+      Platform.OS === 'android' &&
+      fileUri &&
+      !fileUri.startsWith('file://') &&
+      !fileUri.startsWith('content://') &&
+      !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(fileUri)
+    ) {
+      fileUri = `file://${fileUri}`;
+    }
+
     const formData = new FormData();
     formData.append('file', {
-      uri: assetUri,
+      uri: fileUri,
       type: 'image/jpeg',
       name: `${proofType.toLowerCase()}-${Date.now()}.jpg`,
     });
@@ -444,6 +462,44 @@ const DriverProgress = ({ route, navigation }) => {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const formatDurationHours = (hoursValue) => {
+    const totalMinutes = Math.max(0, Math.round((Number(hoursValue) || 0) * 60));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}h ${minutes}m`;
+  };
+
+  const getDateKey = (value) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+  };
+
+  const getPhotoTypes = () => {
+    return new Set((workAssignment?.workRequest?.photos || []).map((p) => p?.type).filter(Boolean));
+  };
+
+  const getPhotoProofLabel = (photo) => {
+    const type = String(photo?.type || '').toUpperCase();
+    if (type === 'BEFORE') return 'Before Photo of Work';
+    if (type === 'AFTER') return 'After Photo of Work';
+    return photo?.title || 'Photo of Work';
+  };
+
+  const hasPhoto = (type) => getPhotoTypes().has(type);
+
+  const scheduledDateKey = getDateKey(workAssignment?.workRequest?.startDate || workAssignment?.startTime);
+  const todayDateKey = getDateKey(new Date());
+  const canStartToday = !scheduledDateKey || scheduledDateKey === todayDateKey;
+
+  const handleReachedSiteAndOpenBeforePhoto = async () => {
+    const result = await updateWorkStatus('REACHED_SITE');
+    if (result.success) {
+      openPhotoModal('BEFORE');
+    }
+  };
+
   const renderLiveUpdates = () => {
     if (workAssignment.status === 'COMPLETED' || workAssignment.status === 'ASSIGNED') {
       return null;
@@ -506,67 +562,67 @@ const DriverProgress = ({ route, navigation }) => {
   };
 
   const renderActionButtons = () => {
-    if (workAssignment.status === 'COMPLETED') {
+    if (workAssignment.status === 'COMPLETED' || workAssignment.status === 'CANCELLED') {
       return null;
     }
 
     return (
       <View style={{ marginTop: 16 }}>
         {workAssignment.status === 'ASSIGNED' && (
-          <Entrance delay={220}>
-            <AnimatedPressable onPress={() => updateWorkStatus('STARTED')}>
-              <View style={[styles.button, styles.buttonSecondary]}>
-                <Text style={styles.buttonTextOnDark}>Start Work</Text>
-              </View>
-            </AnimatedPressable>
-          </Entrance>
-        )}
-        
-        {workAssignment.status === 'STARTED' && (
           <>
+            {!!scheduledDateKey && (
+              <Text style={[styles.workRequestLocation, { marginBottom: 8 }]}>📅 Assigned Date: {scheduledDateKey}</Text>
+            )}
+            {!canStartToday && (
+              <Text style={[styles.workRequestLocation, { marginBottom: 8, color: PREMIUM_LIGHT.danger }]}>⚠ Work can be started only on assigned date.</Text>
+            )}
             <Entrance delay={220}>
-              <AnimatedPressable onPress={() => updateWorkStatus('REACHED_SITE')}>
-                <View style={[styles.button, styles.buttonSecondary]}>
-                  <Text style={styles.buttonTextOnDark}>Reached Site</Text>
+              <AnimatedPressable onPress={() => updateWorkStatus('STARTED')} disabled={!canStartToday}>
+                <View style={[styles.button, styles.buttonSecondary, !canStartToday && { opacity: 0.55 }] }>
+                  <Text style={styles.buttonTextOnDark}>Start Work</Text>
                 </View>
               </AnimatedPressable>
             </Entrance>
           </>
         )}
-        
+
+        {workAssignment.status === 'STARTED' && (
+          <Entrance delay={220}>
+            <AnimatedPressable onPress={handleReachedSiteAndOpenBeforePhoto}>
+              <View style={[styles.button, styles.buttonSecondary]}>
+                <Text style={styles.buttonTextOnDark}>Capture Before Photo of Work</Text>
+              </View>
+            </AnimatedPressable>
+          </Entrance>
+        )}
+
         {workAssignment.status === 'REACHED_SITE' && (
           <>
             <Entrance delay={220}>
               <AnimatedPressable onPress={() => openPhotoModal('BEFORE')}>
                 <View style={[styles.button, styles.buttonSecondary]}>
-                  <Text style={styles.buttonTextOnDark}>Take Before Photo</Text>
+                  <Text style={styles.buttonTextOnDark}>Capture Before Photo of Work</Text>
                 </View>
               </AnimatedPressable>
             </Entrance>
           </>
         )}
-        
+
         {workAssignment.status === 'IN_PROGRESS' && (
           <>
             <Entrance delay={220}>
-              <AnimatedPressable onPress={() => openPhotoModal('DURING')}>
-                <View style={[styles.button, styles.buttonSecondary]}>
-                  <Text style={styles.buttonTextOnDark}>Take During Photo</Text>
-                </View>
-              </AnimatedPressable>
-            </Entrance>
-
-            <Entrance delay={260}>
               <AnimatedPressable onPress={() => openPhotoModal('AFTER')}>
                 <View style={[styles.button, styles.buttonSecondary]}>
-                  <Text style={styles.buttonTextOnDark}>Take After Photo</Text>
+                  <Text style={styles.buttonTextOnDark}>Capture After Photo of Work</Text>
                 </View>
               </AnimatedPressable>
             </Entrance>
-            
             <Entrance delay={280}>
-              <AnimatedPressable onPress={() => updateWorkStatus('COMPLETED')}>
-                <View style={[styles.button, styles.buttonSecondary]}>
+              <AnimatedPressable
+                onPress={() => updateWorkStatus('COMPLETED')}
+                disabled={!hasPhoto('AFTER')}
+              >
+                <View style={[styles.button, styles.buttonSecondary, !hasPhoto('AFTER') && { opacity: 0.55 }]}>
                   <Text style={styles.buttonTextOnDark}>Complete Work</Text>
                 </View>
               </AnimatedPressable>
@@ -631,7 +687,7 @@ const DriverProgress = ({ route, navigation }) => {
 
             <Text style={styles.workRequestLocation}>📍 {workAssignment.workRequest?.location?.address}</Text>
             <Text style={styles.workRequestDuration}>⏱️ Duration: {workAssignment.workRequest?.expectedDuration} hours</Text>
-            <Text style={styles.workRequestDuration}>🚛 {workAssignment.vehicle?.make} {workAssignment.vehicle?.model}</Text>
+            <Text style={styles.workRequestDuration}>🚛 {workAssignment.vehicle?.type} - {workAssignment.vehicle?.vehicleNumber}</Text>
 
             {workAssignment.startTime && (
               <Text style={styles.workRequestDuration}>🕐 Started: {new Date(workAssignment.startTime).toLocaleString()}</Text>
@@ -641,8 +697,8 @@ const DriverProgress = ({ route, navigation }) => {
               <Text style={styles.workRequestDuration}>🕐 Completed: {new Date(workAssignment.endTime).toLocaleString()}</Text>
             )}
 
-            {workAssignment.actualDuration && (
-              <Text style={styles.workRequestDuration}>⏱️ Actual Duration: {workAssignment.actualDuration} hours</Text>
+            {workAssignment.actualDuration >= 0 && !!workAssignment.endTime && (
+              <Text style={styles.workRequestDuration}>⏱️ Actual Duration: {formatDurationHours(workAssignment.actualDuration)} ({workAssignment.actualDuration.toFixed(2)} hrs)</Text>
             )}
 
             {workAssignment.notes && (
@@ -692,7 +748,7 @@ const DriverProgress = ({ route, navigation }) => {
                         )}
                         <View style={{ flex: 1, marginLeft: 12 }}>
                           <Text style={{ fontWeight: '900', color: PREMIUM_LIGHT.text }}>
-                            {p?.type} • {p?.title || 'Photo'}
+                            {getPhotoProofLabel(p)}
                           </Text>
                           <Text style={{ marginTop: 2, color: PREMIUM_LIGHT.muted, fontSize: 12 }}>
                             {p?.timestamp ? new Date(p.timestamp).toLocaleString() : ''}
@@ -730,7 +786,7 @@ const DriverProgress = ({ route, navigation }) => {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                Take {selectedPhotoType} Photo
+                {selectedPhotoType === 'BEFORE' ? 'Capture Before Photo of Work' : selectedPhotoType === 'AFTER' ? 'Capture After Photo of Work' : `Take ${selectedPhotoType} Photo`}
               </Text>
               <Text 
                 style={styles.modalClose} 

@@ -4,7 +4,9 @@
   "description": "Backend API for MRS Earthmovers mobile application",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "npm run start:clean",
+    "start:server": "node server.js",
+    "start:clean": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$max=20; for($i=0; $i -lt $max; $i++){ $p=(Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty OwningProcess); if(-not $p){ break }; Stop-Process -Id $p -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 250 }; npm run start:server\"",
     "dev": "nodemon server.js",
     "test": "jest"
   },

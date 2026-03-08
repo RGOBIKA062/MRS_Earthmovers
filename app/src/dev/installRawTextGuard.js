@@ -1,20 +1,24 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  Pressable,
-  TouchableOpacity,
-  TouchableHighlight,
-  TouchableWithoutFeedback,
-  KeyboardAvoidingView,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Text } from 'react-native';
 
 const shouldWrapStringChild = (value) => {
   if (typeof value === 'string') return value.trim().length > 0;
   if (typeof value === 'number') return true;
   return false;
+};
+
+const isTextType = (type) => type === Text || type?.displayName === 'Text' || type?.name === 'Text';
+
+const normalizeChild = (child, origCreateElement) => {
+  if (Array.isArray(child)) {
+    return child.map((nested) => normalizeChild(nested, origCreateElement));
+  }
+
+  if (shouldWrapStringChild(child)) {
+    return origCreateElement(Text, null, String(child));
+  }
+
+  return child;
 };
 
 export default function installRawTextGuard() {
@@ -23,34 +27,23 @@ export default function installRawTextGuard() {
 
   const origCreateElement = React.createElement;
 
-  const WRAP_PARENTS = new Set([
-    View,
-    ScrollView,
-    Pressable,
-    TouchableOpacity,
-    TouchableHighlight,
-    TouchableWithoutFeedback,
-    SafeAreaView,
-    KeyboardAvoidingView,
-  ]);
-
   React.createElement = function patchedCreateElement(type, props, ...children) {
-    if (type && WRAP_PARENTS.has(type) && children && children.length) {
-      let mutated = false;
-      const nextChildren = children.map((child) => {
-        if (shouldWrapStringChild(child)) {
-          mutated = true;
-          return origCreateElement(Text, null, String(child));
-        }
-        return child;
-      });
+    if (!type || isTextType(type) || !children || children.length === 0) {
+      return origCreateElement(type, props, ...children);
+    }
 
-      if (mutated) {
-        // This stack points to the JSX source location in dev.
-        // eslint-disable-next-line no-console
-        console.warn('Raw text child auto-wrapped in <Text>. Trace:', new Error().stack);
-        return origCreateElement(type, props, ...nextChildren);
-      }
+    let mutated = false;
+    const nextChildren = children.map((child) => {
+      const normalized = normalizeChild(child, origCreateElement);
+      if (normalized !== child) mutated = true;
+      return normalized;
+    });
+
+    if (mutated) {
+      // This stack points to the JSX source location in dev.
+      // eslint-disable-next-line no-console
+      console.warn('Raw text child auto-wrapped in <Text>. Trace:', new Error().stack);
+      return origCreateElement(type, props, ...nextChildren);
     }
 
     return origCreateElement(type, props, ...children);

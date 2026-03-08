@@ -43,7 +43,7 @@ class AuthService {
     try {
       const user = await User.findOne({ email });
       if (!user) {
-        throw new Error('Invalid credentials');
+        throw new Error('Invalid email id or password');
       }
 
       if (!user.isActive) {
@@ -52,7 +52,7 @@ class AuthService {
 
       const isPasswordValid = await user.comparePassword(password);
       if (!isPasswordValid) {
-        throw new Error('Invalid credentials');
+        throw new Error('Invalid email id or password');
       }
 
       const token = this.generateToken(user._id);

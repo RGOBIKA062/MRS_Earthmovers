@@ -20,6 +20,7 @@ import MapSelectScreen from './src/screens/MapSelectScreen';
 import InvoiceScreen from './src/screens/InvoiceScreen';
 import AdminDashboard from './src/screens/admin/AdminDashboard';
 import AdminWorkRequests from './src/screens/admin/AdminWorkRequests';
+import WorkRequestDetail from './src/screens/admin/WorkRequestDetail';
 import AdminVehicles from './src/screens/admin/AdminVehicles';
 import AdminAttendance from './src/screens/admin/AdminAttendance';
 import AdminReports from './src/screens/admin/AdminReports';
@@ -90,6 +91,7 @@ function AdminStack() {
     >
       <AdminStackNav.Screen name="AdminTabs" component={AdminTabs} />
       <AdminStackNav.Screen name="AdminAssignWork" component={AdminAssignWork} />
+      <AdminStackNav.Screen name="WorkRequestDetail" component={WorkRequestDetail} />
       <AdminStackNav.Screen name="AddVehicle" component={AddVehicle} />
       <AdminStackNav.Screen name="VehicleDetails" component={VehicleDetails} />
       <AdminStackNav.Screen name="CustomerWorkRequest" component={CustomerWorkRequest} />
@@ -114,6 +116,7 @@ function AdminTabs() {
           else if (route.name === 'AdminComplaints') iconName = 'report-problem';
           else if (route.name === 'AdminReports') iconName = 'insert-chart';
           else if (route.name === 'Settings') iconName = 'settings';
+          else iconName = 'help-outline';
 
           return <MaterialIcons name={iconName} size={size} color={color} />;
         },
@@ -151,6 +154,7 @@ function CustomerTabs() {
           else if (route.name === 'CustomerTrackWork') iconName = 'location-on';
           else if (route.name === 'Payment') iconName = 'payment';
           else if (route.name === 'Settings') iconName = 'settings';
+          else iconName = 'help-outline';
 
           return <MaterialIcons name={iconName} size={size} color={color} />;
         },
@@ -185,6 +189,7 @@ function DriverTabs() {
           else if (route.name === 'DriverWorkList') iconName = 'list';
           else if (route.name === 'DriverComplaint') iconName = 'report';
           else if (route.name === 'Settings') iconName = 'settings';
+          else iconName = 'help-outline';
 
           return <MaterialIcons name={iconName} size={size} color={color} />;
         },

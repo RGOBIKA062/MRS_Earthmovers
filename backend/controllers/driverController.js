@@ -2,8 +2,12 @@ const User = require('../models/User');
 const Vehicle = require('../models/Vehicle');
 const WorkAssignment = require('../models/WorkAssignment');
 const Complaint = require('../models/Complaint');
+const PhotoProof = require('../models/PhotoProof');
 const mongoose = require('mongoose');
 const winston = require('winston');
+const {
+  releaseVehicleIfNoActiveAssignments
+} = require('../services/vehicleAvailabilityService');
 
 const logger = winston.createLogger({
   level: 'info',
@@ -16,6 +20,27 @@ const logger = winston.createLogger({
 
 class DriverController {
   static DAILY_DRIVER_SALARY = 1000;
+
+  static getAssignmentDurationHours(assignment) {
+    const explicitDuration = Number(assignment?.actualDuration);
+    if (Number.isFinite(explicitDuration) && explicitDuration > 0) {
+      return explicitDuration;
+    }
+
+    const start = assignment?.startTime ? new Date(assignment.startTime).getTime() : NaN;
+
+    const endCandidates = [assignment?.endTime, assignment?.completedAt]
+      .map((value) => (value ? new Date(value).getTime() : NaN))
+      .filter((value) => !Number.isNaN(value));
+
+    const end = endCandidates.length > 0 ? Math.max(...endCandidates) : NaN;
+    if (!Number.isNaN(start) && !Number.isNaN(end) && end >= start) {
+      return (end - start) / (1000 * 60 * 60);
+    }
+
+    return 0;
+  }
+
   async getDrivers(req, res) {
     try {
       const { search, page = 1, limit = 50 } = req.query;
@@ -92,10 +117,10 @@ class DriverController {
       const workAssignments = await WorkAssignment.find(filter)
         .populate({
           path: 'workRequest',
-          select: 'workType description location expectedDuration status photos',
+          select: 'workType description location expectedDuration status photos startDate endDate',
           populate: { path: 'photos', select: 'type title imageUrl timestamp uploadedBy geolocation notes' },
         })
-        .populate('vehicle', 'vehicleNumber make model type')
+        .populate('vehicle', 'vehicleNumber type')
         .sort({ startTime: -1 });
 
       res.json({
@@ -121,6 +146,15 @@ class DriverController {
         });
       }
 
+      const allowedTransitions = {
+        ASSIGNED: ['STARTED', 'CANCELLED'],
+        STARTED: ['REACHED_SITE', 'CANCELLED'],
+        REACHED_SITE: ['IN_PROGRESS', 'CANCELLED'],
+        IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+        COMPLETED: [],
+        CANCELLED: []
+      };
+
       const assignment = await WorkAssignment.findById(req.params.id)
         .populate('workRequest')
         .populate('vehicle');
@@ -139,10 +173,64 @@ class DriverController {
         });
       }
 
+      const currentStatus = assignment.status;
+      if (!allowedTransitions[currentStatus]?.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid status transition from ${currentStatus} to ${status}`
+        });
+      }
+
+      if (status === 'STARTED' && req.user.role !== 'ADMIN') {
+        const scheduledStart = assignment.workRequest?.startDate || assignment.startTime;
+        if (scheduledStart) {
+          const scheduledDay = new Date(scheduledStart).toISOString().slice(0, 10);
+          const today = new Date().toISOString().slice(0, 10);
+          if (scheduledDay !== today) {
+            return res.status(400).json({
+              success: false,
+              message: `Work can only be started on assigned date (${scheduledDay}).`
+            });
+          }
+        }
+      }
+
+      if (status === 'IN_PROGRESS') {
+        const beforePhoto = await PhotoProof.findOne({
+          workAssignment: assignment._id,
+          type: 'BEFORE'
+        }).select('_id');
+
+        if (!beforePhoto) {
+          return res.status(400).json({
+            success: false,
+            message: 'Capture a geotagged BEFORE photo before starting work progress.'
+          });
+        }
+      }
+
+      let assignmentSavedEarly = false;
+
+      if (status === 'COMPLETED') {
+        const afterPhoto = await PhotoProof.findOne({
+          workAssignment: assignment._id,
+          type: 'AFTER'
+        }).select('_id');
+
+        if (!afterPhoto) {
+          return res.status(400).json({
+            success: false,
+            message: 'Capture a geotagged AFTER photo before completing work.'
+          });
+        }
+      }
+
       assignment.status = status;
-      if (status === 'STARTED' && !assignment.startTime) {
+
+      if (status === 'STARTED') {
         assignment.startTime = new Date();
       }
+
       if (location) {
         assignment.location = {
           latitude: location.latitude,
@@ -150,63 +238,84 @@ class DriverController {
           address: location.address
         };
       }
+
       if (notes) assignment.notes = notes;
       if (odometerReading) assignment.odometerReading = odometerReading;
 
       // Keep vehicle state consistent with assignment state
-      if (assignment.vehicle && status !== 'COMPLETED') {
+      if (assignment.vehicle && !['COMPLETED', 'CANCELLED'].includes(status)) {
         assignment.vehicle.lastOdometer = odometerReading || assignment.vehicle.lastOdometer;
         assignment.vehicle.status = 'ASSIGNED';
         await assignment.vehicle.save();
       }
 
-
       // Propagate driver status to customer work request status
-      if (assignment.workRequest && status !== 'COMPLETED') {
-        if (status === 'ASSIGNED') {
-          assignment.workRequest.status = 'ASSIGNED';
-        } else if (['STARTED', 'REACHED_SITE', 'IN_PROGRESS'].includes(status)) {
+      if (assignment.workRequest) {
+        if (!assignment.workRequest.customerMobile) {
+          const customer = await User.findById(assignment.workRequest.customer).select('phone');
+          if (customer?.phone) {
+            assignment.workRequest.customerMobile = customer.phone;
+          }
+        }
+
+        if (status === 'STARTED' || status === 'REACHED_SITE' || status === 'IN_PROGRESS') {
           assignment.workRequest.status = 'IN_PROGRESS';
-          // WhatsApp notification logic
+        } else if (status === 'CANCELLED') {
+          assignment.workRequest.status = 'CANCELLED';
+        }
+
+        if (status === 'STARTED') {
           try {
-            // Only send when status is STARTED
-            if (status === 'STARTED') {
-              const customer = await require('../models/User').findById(assignment.workRequest.customer);
-              const mobile = assignment.workRequest.customerMobile || customer.phone;
-              const driver = await require('../models/User').findById(assignment.driver);
-              const vehicle = assignment.vehicle;
-              const siteName = assignment.workRequest.location?.address || 'Site';
-              const now = new Date();
-              const message = `MRS EARTHMOVERS started work\nDriver: ${driver.name}\nVehicle: ${vehicle.vehicleNumber}\nSite: ${siteName}\nTime: ${now.toLocaleString()}`;
-              // Call WhatsApp API (pseudo-code, replace with actual API call)
+            const customer = await User.findById(assignment.workRequest.customer);
+            const mobile = assignment.workRequest.customerMobile || customer?.phone;
+            const driver = await User.findById(assignment.driver);
+            const vehicle = assignment.vehicle;
+            const siteName = assignment.workRequest.location?.address || 'Site';
+            const now = new Date();
+            const message = `MRS EARTHMOVERS started work\nDriver: ${driver?.name || 'Driver'}\nVehicle: ${vehicle?.vehicleNumber || 'Vehicle'}\nSite: ${siteName}\nTime: ${now.toLocaleString()}`;
+            if (mobile) {
               await require('../services/notificationService').sendWhatsAppNotification(mobile, message);
             }
           } catch (err) {
             logger.error('WhatsApp notification error:', err);
           }
-        } else if (status === 'CANCELLED') {
-          assignment.workRequest.status = 'CANCELLED';
         }
+
         assignment.workRequest.updatedAt = new Date();
-        await assignment.workRequest.save();
       }
 
       if (status === 'COMPLETED') {
+        if (!assignment.startTime) {
+          return res.status(400).json({
+            success: false,
+            message: 'Work cannot be completed before it is started.'
+          });
+        }
+
         assignment.endTime = new Date();
-        const duration = (assignment.endTime - assignment.startTime) / (1000 * 60 * 60);
-        assignment.actualDuration = parseFloat(duration.toFixed(2));
+        const durationHours = Math.max(0, (assignment.endTime - assignment.startTime) / (1000 * 60 * 60));
+        assignment.actualDuration = parseFloat(durationHours.toFixed(2));
+        assignment.completedAt = new Date();
 
         if (assignment.vehicle) {
+          // Persist status transition before release check so this assignment is not counted as active.
+          await assignment.save();
+          assignmentSavedEarly = true;
+
           assignment.vehicle.lastOdometer = odometerReading || assignment.vehicle.lastOdometer;
-          assignment.vehicle.status = 'AVAILABLE';
           await assignment.vehicle.save();
+          await releaseVehicleIfNoActiveAssignments(assignment.vehicle._id);
         }
 
         if (assignment.workRequest) {
           assignment.workRequest.status = 'COMPLETED';
           assignment.workRequest.completedAt = new Date();
+          const hourlyRate = Number(assignment.vehicle?.hourlyRate || 0);
+          const calculatedActualCost = hourlyRate > 0
+            ? parseFloat((assignment.actualDuration * hourlyRate).toFixed(2))
+            : 0;
+          assignment.workRequest.actualCost = calculatedActualCost || assignment.workRequest.actualCost || assignment.workRequest.estimatedCost || 0;
           assignment.workRequest.updatedAt = new Date();
-          await assignment.workRequest.save();
         }
 
         // Update attendance record with checkout time for revenue calculation
@@ -222,27 +331,46 @@ class DriverController {
             date: { $gte: today, $lt: tomorrow }
           });
 
-          if (attendance && !attendance.checkOut) {
-            attendance.checkOut = assignment.endTime;
-            const workHours = (assignment.endTime - attendance.checkIn) / (1000 * 60 * 60);
-            attendance.workHours = parseFloat(workHours.toFixed(2));
+          if (attendance) {
+            // Use the actual work duration from assignment for consistency
+            // This ensures driver dashboard and admin reports show the same hours
+            if (!attendance.checkOut) {
+              attendance.checkOut = assignment.endTime;
+            }
+            
+            // Accumulate work hours from multiple assignments in a day
+            const currentWorkHours = parseFloat(attendance.workHours || 0);
+            const newWorkHours = parseFloat(assignment.actualDuration || 0);
+            attendance.workHours = parseFloat((currentWorkHours + newWorkHours).toFixed(2));
+            
             await attendance.save();
           }
         } catch (err) {
           logger.error('Error updating attendance on work completion:', err);
-          // Don't fail the work completion if attendance update fails
         }
       }
 
-      await assignment.save();
+      if (status === 'CANCELLED' && assignment.vehicle) {
+        // Persist cancellation before release check so this assignment is not counted as active.
+        await assignment.save();
+        assignmentSavedEarly = true;
+        await releaseVehicleIfNoActiveAssignments(assignment.vehicle._id);
+      }
+
+      if (!assignmentSavedEarly) {
+        await assignment.save();
+      }
+      if (assignment.workRequest) {
+        await assignment.workRequest.save();
+      }
 
       const populated = await WorkAssignment.findById(assignment._id)
         .populate({
           path: 'workRequest',
-          select: 'workType description location expectedDuration status photos',
+          select: 'workType description location expectedDuration status photos startDate endDate',
           populate: { path: 'photos', select: 'type title imageUrl timestamp uploadedBy geolocation notes' },
         })
-        .populate('vehicle', 'vehicleNumber make model type hourlyRate status')
+        .populate('vehicle', 'vehicleNumber type hourlyRate status')
         .populate('driver', 'name phone');
 
       res.json({
@@ -254,7 +382,7 @@ class DriverController {
       logger.error('Work status update error:', error);
       res.status(400).json({
         success: false,
-        message: error.message
+        message: error.message || 'Failed to update work status'
       });
     }
   }
@@ -325,7 +453,7 @@ class DriverController {
       const driverId = req.params.driverId || req.user.id;
       const workAssignments = await WorkAssignment.find({ driver: driverId })
         .populate('workRequest', 'workType description location')
-        .populate('vehicle', 'vehicleNumber make model')
+        .populate('vehicle', 'vehicleNumber type')
         .sort({ startTime: -1 });
 
       const today = new Date();
@@ -389,7 +517,7 @@ class DriverController {
         }
       }
 
-      await complaint.populate('vehicle', 'vehicleNumber make model');
+      await complaint.populate('vehicle', 'vehicleNumber type');
       await complaint.populate('driver', 'name phone');
 
       res.status(201).json({
@@ -473,11 +601,11 @@ class DriverController {
           driver: driverId,
           startTime: { $gte: today, $lt: tomorrow }
         })
-          .populate('vehicle', 'hourlyRate vehicleNumber make model type')
+          .populate('vehicle', 'hourlyRate vehicleNumber type')
           .populate('workRequest', 'workType location status'),
         WorkAssignment.find({ driver: driverId })
           .populate('workRequest', 'workType location status')
-          .populate('vehicle', 'vehicleNumber make model type')
+          .populate('vehicle', 'vehicleNumber type')
           .sort({ startTime: -1 })
           .limit(5)
       ]);
@@ -523,14 +651,20 @@ class DriverController {
         .populate('workRequest', 'workType status')
         .populate('vehicle', 'hourlyRate vehicleNumber');
 
-      const completedCount = workAssignments.filter(wa => wa.status === 'COMPLETED').length;
+      const completedAssignments = workAssignments.filter((assignment) => assignment.status === 'COMPLETED');
+      const completedCount = completedAssignments.length;
       const totalCount = workAssignments.length;
+      const totalHoursWorked = completedAssignments.reduce(
+        (sum, assignment) => sum + DriverController.getAssignmentDurationHours(assignment),
+        0
+      );
 
       res.json({
         success: true,
         data: {
           completedCount,
           totalCount,
+          totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
           totalEarnings: 0
         }
       });
@@ -563,6 +697,12 @@ class DriverController {
       }
 
       const targetDate = new Date(date);
+      if (Number.isNaN(targetDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date parameter'
+        });
+      }
       targetDate.setHours(0, 0, 0, 0);
       const nextDay = new Date(targetDate);
       nextDay.setDate(nextDay.getDate() + 1);
@@ -572,11 +712,23 @@ class DriverController {
         startTime: { $gte: targetDate, $lt: nextDay }
       }).populate('vehicle', 'hourlyRate');
 
-      const completed = workAssignments.filter(wa => wa.status === 'COMPLETED').length;
+      const completedAssignments = await WorkAssignment.find({
+        driver: driverId,
+        status: 'COMPLETED',
+        $or: [
+          { completedAt: { $gte: targetDate, $lt: nextDay } },
+          { endTime: { $gte: targetDate, $lt: nextDay } }
+        ]
+      });
+
+      const completed = completedAssignments.length;
       const workCount = workAssignments.length;
-      
-      const hoursWorked = 0;
-      
+
+      const hoursWorked = completedAssignments.reduce(
+        (sum, assignment) => sum + DriverController.getAssignmentDurationHours(assignment),
+        0
+      );
+
       const earnings = 0;
 
       res.json({
@@ -584,7 +736,7 @@ class DriverController {
         data: {
           completed,
           workCount,
-          hoursWorked: Math.round(hoursWorked * 10) / 10,
+          hoursWorked: Math.round(hoursWorked * 100) / 100,
           earnings: Math.round(earnings)
         }
       });

@@ -123,16 +123,8 @@ const SettingsScreen = () => {
               <Text style={styles.buttonText}>{busy ? 'Logging out…' : 'Logout'}</Text>
             </View>
           </AnimatedPressable>
-
-          <Text style={[styles.subtitle, { marginTop: 8, color: PREMIUM_LIGHT.muted }]}>
-            Tip: For real devices, run the backend on the same Wi‑Fi network.
-          </Text>
         </View>
       </Entrance>
-
-      <Text style={{ textAlign: 'center', color: PREMIUM_LIGHT.muted, marginBottom: 12 }}>
-        {Platform.OS.toUpperCase()} • MRS Earthmovers
-      </Text>
     </View>
   );
 };

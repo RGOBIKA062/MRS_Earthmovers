@@ -79,10 +79,10 @@ const AdminVehicles = ({ navigation }) => {
           {item.vehicleNumber}
         </Text>
         <Text style={styles.vehicleDetails}>
-          {item.make} {item.model} ({item.year})
+          {item.type}
         </Text>
         <Text style={styles.vehicleDetails}>
-          Type: {item.type} | Rate: ₹{item.hourlyRate}/hr
+          Rate: ₹{item.hourlyRate}/hr • Status: {item.status}
         </Text>
         {item.driver && (
           <Text style={styles.vehicleDetails}>

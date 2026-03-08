@@ -68,8 +68,8 @@ export default function VehicleDetails({ route, navigation }) {
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
         <View style={styles.card}>
-          <Text style={styles.title}>{vehicle.make} {vehicle.model}</Text>
-          <Text style={styles.subtitle}>Type: {vehicle.type} • Year: {vehicle.year}</Text>
+          <Text style={styles.title}>{vehicle.type}</Text>
+          <Text style={styles.subtitle}>Vehicle Number: {vehicle.vehicleNumber}</Text>
           <Text style={[styles.subtitle, { marginTop: 8 }]}>Status: {vehicle.status}</Text>
           <Text style={styles.subtitle}>Hourly Rate: ₹{vehicle.hourlyRate}/hr</Text>
           <Text style={styles.subtitle}>Capacity: {vehicle.capacity}</Text>

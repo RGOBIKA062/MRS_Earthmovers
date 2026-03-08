@@ -31,29 +31,25 @@ const DriverDashboard = ({ navigation }) => {
 
   const [overallData, setOverallData] = useState({
     totalCompleted: 0,
-    totalEarnings: 0,
     totalHoursWorked: 0,
     totalWorkRequests: 0
   });
 
   const [dateData, setDateData] = useState({
     completed: 0,
-    earnings: 0,
     hours: 0,
     requests: 0
   });
 
   /* ---------------- FETCH OVERALL ---------------- */
-  const DAILY_DRIVER_SALARY = 1000;
-
   const fetchOverallStats = async () => {
     const workRes = await apiService.getWorkAssignmentsStats(user.id);
+    const stats = workRes.data.data || {};
 
     setOverallData({
-      totalCompleted: workRes.data.data?.completedCount || 0,
-      totalEarnings: workRes.data.data?.totalEarnings || 0,
-      totalHoursWorked: 0,
-      totalWorkRequests: workRes.data.data?.totalCount || 0
+      totalCompleted: stats.completedCount || 0,
+      totalHoursWorked: Number.isFinite(Number(stats.totalHoursWorked)) ? Number(stats.totalHoursWorked) : 0,
+      totalWorkRequests: stats.totalCount || 0
     });
   };
 
@@ -65,8 +61,7 @@ const DriverDashboard = ({ navigation }) => {
 
     setDateData({
       completed: d.completed || 0,
-      earnings: d.earnings || 0,
-      hours: d.hoursWorked || 0,
+      hours: Number.isFinite(Number(d.hoursWorked)) ? Number(d.hoursWorked) : 0,
       requests: d.workCount || 0
     });
   };
@@ -111,8 +106,8 @@ const DriverDashboard = ({ navigation }) => {
   };
 
   /* ---------------- CARD ---------------- */
-  const MetricCard = ({ icon, title, value, subtitle }) => (
-    <View style={localStyles.card}>
+  const MetricCard = ({ icon, title, value, subtitle, cardStyle }) => (
+    <View style={[localStyles.card, cardStyle]}>
       <View style={localStyles.iconBox}>
         <Text style={localStyles.icon}>{icon}</Text>
       </View>
@@ -138,7 +133,7 @@ const DriverDashboard = ({ navigation }) => {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>My Statistics</Text>
           <Text style={localStyles.headerSub}>
-            Performance & Earnings Overview
+            Performance Overview
           </Text>
         </View>
       </Entrance>
@@ -190,17 +185,59 @@ const DriverDashboard = ({ navigation }) => {
         <View style={localStyles.grid}>
           {viewMode === 'overall' ? (
             <>
-              <MetricCard icon="✅" title="Total Completed" value={overallData.totalCompleted} subtitle="Work assignments" />
-              <MetricCard icon="💰" title="Total Earnings" value={`₹${overallData.totalEarnings.toLocaleString('en-IN')}`} subtitle="All completed work" />
-              <MetricCard icon="⏱️" title="Hours Worked" value={overallData.totalHoursWorked.toFixed(1)} subtitle="Total hours" />
-              <MetricCard icon="📋" title="Work Requests" value={overallData.totalWorkRequests} subtitle="Assigned works" />
+              <View style={localStyles.metricRowTop}>
+                <MetricCard
+                  icon="✅"
+                  title="Total Completed"
+                  value={overallData.totalCompleted}
+                  subtitle="Work assignments"
+                  cardStyle={localStyles.cardHalf}
+                />
+                <MetricCard
+                  icon="⏱️"
+                  title="Hours Worked"
+                  value={overallData.totalHoursWorked.toFixed(2)}
+                  subtitle="Total hours"
+                  cardStyle={localStyles.cardHalf}
+                />
+              </View>
+              <View style={localStyles.metricRowCenter}>
+                <MetricCard
+                  icon="📋"
+                  title="Work Requests"
+                  value={overallData.totalWorkRequests}
+                  subtitle="Assigned works"
+                  cardStyle={localStyles.cardSingle}
+                />
+              </View>
             </>
           ) : (
             <>
-              <MetricCard icon="✅" title="Completed" value={dateData.completed} subtitle="On selected date" />
-              <MetricCard icon="💰" title="Earnings" value={`₹${dateData.earnings.toLocaleString('en-IN')}`} subtitle="On selected date" />
-              <MetricCard icon="⏱️" title="Hours Worked" value={dateData.hours.toFixed(1)} subtitle="On selected date" />
-              <MetricCard icon="📋" title="Work Requests" value={dateData.requests} subtitle="On selected date" />
+              <View style={localStyles.metricRowTop}>
+                <MetricCard
+                  icon="✅"
+                  title="Completed"
+                  value={dateData.completed}
+                  subtitle="On selected date"
+                  cardStyle={localStyles.cardHalf}
+                />
+                <MetricCard
+                  icon="⏱️"
+                  title="Hours Worked"
+                  value={dateData.hours.toFixed(2)}
+                  subtitle="On selected date"
+                  cardStyle={localStyles.cardHalf}
+                />
+              </View>
+              <View style={localStyles.metricRowCenter}>
+                <MetricCard
+                  icon="📋"
+                  title="Work Requests"
+                  value={dateData.requests}
+                  subtitle="On selected date"
+                  cardStyle={localStyles.cardSingle}
+                />
+              </View>
             </>
           )}
         </View>
@@ -281,15 +318,26 @@ const localStyles = StyleSheet.create({
   },
 
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    width: '100%',
     paddingHorizontal: 14,
     marginTop: 16
   },
 
+  metricRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
+    width: '100%'
+  },
+
+  metricRowCenter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'stretch',
+    width: '100%'
+  },
+
   card: {
-    width: '48%',
     backgroundColor: PREMIUM_LIGHT.surface,
     borderRadius: 18,
     paddingVertical: 18,
@@ -299,6 +347,14 @@ const localStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: PREMIUM_LIGHT.border,
     elevation: 4
+  },
+
+  cardHalf: {
+    width: '48%'
+  },
+
+  cardSingle: {
+    width: '48%'
   },
 
   iconBox: {

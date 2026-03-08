@@ -101,8 +101,7 @@ const DriverWorkList = ({ navigation }) => {
           <Text style={styles.workRequestLocation}>📍 {item.workRequest?.location?.address}</Text>
           <Text style={styles.workRequestDuration}>⏱️ Duration: {item.workRequest?.expectedDuration} hours</Text>
 
-          <Text style={styles.workRequestDuration}>🚛 {item.vehicle?.make || '—'} {item.vehicle?.model || ''}</Text>
-          <Text style={[styles.workRequestLocation, { marginTop: 2 }]}>Vehicle: {item.vehicle?.vehicleNumber || '—'}</Text>
+          <Text style={styles.workRequestDuration}>🚛 {item.vehicle?.type || '—'} - {item.vehicle?.vehicleNumber || '—'}</Text>
 
           {item.location && (
             <Text style={styles.workRequestLocation}>📍 Current Location: {item.location.address}</Text>

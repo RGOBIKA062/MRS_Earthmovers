@@ -144,14 +144,14 @@ const AdminDashboard = ({ navigation }) => {
         onPress={onPress}
       >
       <Text style={localStyles.dashboardCardTitle} numberOfLines={1}>
-        {title}
+        {title != null ? String(title) : ''}
       </Text>
       <Text style={localStyles.dashboardCardValue} numberOfLines={1}>
-        {value}
+        {value != null ? String(value) : '0'}
       </Text>
       {subtitle ? (
         <Text style={localStyles.dashboardCardSubtitle} numberOfLines={1}>
-          {subtitle}
+          {String(subtitle)}
         </Text>
       ) : null}
       </AnimatedPressable>
@@ -258,24 +258,19 @@ const AdminDashboard = ({ navigation }) => {
           </View>
         )}
         <View style={localStyles.dashboardGrid}>
-          {viewMode === 'overall' ? (
-            <>
-              <View style={{ alignSelf: 'center', width: '100%', display: 'flex', flexDirection: 'row', justifyContent: 'center', marginTop: -24 }}>
-                <View style={{ width: '60%' }}>
-                  {renderCard(
-                    <>
-                      <Text style={{fontWeight: 'bold', textAlign: 'center', marginBottom: 8}}>Emergency</Text>
-                      <Text style={{fontWeight: 'bold', textAlign: 'center'}}>Vehicles</Text>
-                    </>,
-                    overallData.emergencyVehicles,
-                    'Requires attention',
-                    () => navigation.navigate('AdminVehicles'),
-                    280
-                  )}
-                </View>
+          {viewMode === 'overall' && (
+            <View style={{ alignSelf: 'center', width: '100%', display: 'flex', flexDirection: 'row', justifyContent: 'center', marginTop: -24 }}>
+              <View style={{ width: '60%' }}>
+                {renderCard(
+                  'Emergency Vehicles',
+                  overallData.emergencyVehicles,
+                  'Requires attention',
+                  () => navigation.navigate('AdminVehicles'),
+                  280
+                )}
               </View>
-            </>
-          ) : null}
+            </View>
+          )}
         </View>
         
 
@@ -399,11 +394,6 @@ const localStyles = StyleSheet.create({
     backgroundColor: PREMIUM_LIGHT.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 6,
     marginBottom: 0,
   },
   dashboardCardTitle: {
@@ -437,11 +427,6 @@ const localStyles = StyleSheet.create({
     backgroundColor: PREMIUM_LIGHT.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.10,
-    shadowRadius: 6,
     marginBottom: 0,
   },
 });

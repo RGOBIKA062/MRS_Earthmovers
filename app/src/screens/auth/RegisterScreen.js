@@ -297,8 +297,7 @@ const RegisterScreen = ({ navigation }) => {
             </AnimatedPressable>
 
             <Text style={{ textAlign: 'center', marginTop: 16, color: PREMIUM_LIGHT.muted }}>
-              {'Already have an account? '}
-              <Text
+              Already have an account? <Text
                 style={{ color: PREMIUM_LIGHT.accent, fontWeight: '900' }}
                 onPress={() => navigation.navigate('Login')}
               >

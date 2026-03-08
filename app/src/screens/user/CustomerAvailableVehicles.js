@@ -119,7 +119,7 @@ const CustomerAvailableVehicles = ({ navigation }) => {
             {type}
           </Text>
           <Text style={{ fontSize: 14, color: count >= 1 ? PREMIUM_LIGHT.success : PREMIUM_LIGHT.danger, fontWeight: '600' }}>
-            {count} available
+            <Text>{count}</Text> available
           </Text>
         </View>
       </TouchableOpacity>

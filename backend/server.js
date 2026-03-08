@@ -8,6 +8,7 @@ const connectDB = require('./config/database');
 const winston = require('winston');
 const cron = require('node-cron');
 const path = require('path');
+const http = require('http');
 
 const authRoutes = require('./routes/auth');
 const vehicleRoutes = require('./routes/vehicles');
@@ -72,8 +73,50 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info(`Server running on port ${PORT}`);
+});
+
+server.on('error', (err) => {
+  if (err.code !== 'EADDRINUSE') {
+    throw err;
+  }
+
+  const healthReq = http.get(
+    {
+      hostname: '127.0.0.1',
+      port: PORT,
+      path: '/api/health',
+      timeout: 2000,
+    },
+    (res) => {
+      let body = '';
+      res.on('data', (chunk) => {
+        body += chunk;
+      });
+      res.on('end', () => {
+        if (res.statusCode === 200 && body.includes('MRS Earthmovers API is running')) {
+          logger.warn(`Port ${PORT} already has an active MRS backend instance. Exiting duplicate start.`);
+          process.exit(0);
+          return;
+        }
+
+        logger.error(`Port ${PORT} is already in use by another process.`);
+        process.exit(1);
+      });
+    }
+  );
+
+  healthReq.on('error', () => {
+    logger.error(`Port ${PORT} is already in use by another process.`);
+    process.exit(1);
+  });
+
+  healthReq.on('timeout', () => {
+    healthReq.destroy();
+    logger.error(`Port ${PORT} is already in use and health check timed out.`);
+    process.exit(1);
+  });
 });
 
 cron.schedule('0 9 * * *', async () => {

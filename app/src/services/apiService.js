@@ -15,6 +15,10 @@ class ApiService {
     return this.api.get('/payments/customer');
   }
 
+  async getDueWorkRequests() {
+    return this.api.get('/payments/due-work-requests');
+  }
+
   async createPaymentOrder(amount, workRequestId, description) {
     return this.api.post('/payments/create-order', {
       amount,
@@ -177,7 +181,7 @@ class ApiService {
     return this.api.get('/work-requests/daily-report', { params: { date } });
   }
 
-  async getMonthlyReport(year, month) {
+  async getWorkRequestMonthlyReport(year, month) {
     return this.api.get('/work-requests/monthly-report', { params: { year, month } });
   }
 
@@ -199,8 +203,28 @@ class ApiService {
     return this.api.post('/attendance', attendanceData);
   }
 
+  async checkOut(checkOutData) {
+    return this.api.post('/attendance/checkout', checkOutData);
+  }
+
   async updateAttendanceStatus(attendanceId, status) {
     return this.api.put(`/attendance/${attendanceId}`, { status });
+  }
+
+  async approveAttendance(attendanceId, notes) {
+    return this.api.post(`/attendance/approve/${attendanceId}`, { attendanceId, notes });
+  }
+
+  async rejectAttendance(attendanceId, reason) {
+    return this.api.post(`/attendance/reject/${attendanceId}`, { attendanceId, reason });
+  }
+
+  async raiseDispute(attendanceId, description) {
+    return this.api.post(`/attendance/dispute/${attendanceId}`, { attendanceId, description });
+  }
+
+  async resolveDispute(attendanceId, disputeIndex, resolution) {
+    return this.api.post(`/attendance/dispute/${attendanceId}/resolve`, { attendanceId, disputeIndex, resolution });
   }
 
   async getDriverAttendance(driverId, params = {}) {
@@ -211,12 +235,41 @@ class ApiService {
     return this.api.get('/attendance/daily', { params });
   }
 
+  async getPendingApprovals(params = {}) {
+    return this.api.get('/attendance/approvals/pending', { params });
+  }
+
+  async getDisputedRecords(params = {}) {
+    return this.api.get('/attendance/issues/disputed', { params });
+  }
+
+  async getAttendanceMonthlyReport(year, month, driverId = null) {
+    return this.api.get('/attendance/report/monthly', { params: { year, month, driverId } });
+  }
+
+  async getWeeklyReport(startDate, endDate) {
+    return this.api.get('/attendance/report/weekly', { params: { startDate, endDate } });
+  }
+
+  async getAttendanceAnalytics(startDate = null, endDate = null) {
+    return this.api.get('/attendance/report/analytics', { params: { startDate, endDate } });
+  }
+
   // Payment APIs
   async createRazorpayOrder(amount, workRequestId, description) {
     return this.api.post('/payments/create-order', {
       amount,
       workRequestId,
       description
+    });
+  }
+
+  async recordUpiPayment(amount, workRequestId, description, app = 'UPI') {
+    return this.api.post('/payments/record-upi', {
+      amount,
+      workRequestId,
+      description,
+      app
     });
   }
 

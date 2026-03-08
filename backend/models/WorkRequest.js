@@ -14,6 +14,12 @@ const workRequestSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  customerMobile: {
+    type: String,
+    required: false,
+    trim: true,
+    match: [/^\d{10}$/, 'Customer mobile number must be exactly 10 digits']
+  },
   location: {
     latitude: {
       type: Number,
@@ -45,6 +51,11 @@ const workRequestSchema = new mongoose.Schema({
     type: String,
     enum: ['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
     default: 'PENDING'
+  },
+  preferredVehicleType: {
+    type: String,
+    enum: ['JCB', 'Hitachi', 'Rocksplitter', 'Tractor', 'Tipper', 'Compressor'],
+    default: null
   },
   assignedVehicle: {
     type: mongoose.Schema.Types.ObjectId,

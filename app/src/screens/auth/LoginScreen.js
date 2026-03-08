@@ -27,10 +27,10 @@ const LoginScreen = ({ navigation }) => {
       if (result.success) {
         Alert.alert('Success', 'Login successful');
       } else {
-        Alert.alert('Error', result.error);
+        Alert.alert('Error', result.error || 'Invalid email id or password');
       }
     } catch (error) {
-      Alert.alert('Error', 'Invalid email or password');
+      Alert.alert('Error', 'Invalid email id or password');
     } finally {
       setLoading(false);
     }
@@ -115,8 +115,7 @@ const LoginScreen = ({ navigation }) => {
             </AnimatedPressable>
 
             <Text style={{ textAlign: 'center', marginTop: 16, color: PREMIUM_LIGHT.muted }}>
-              {'Don\'t have an account? '}
-              <Text
+              Don't have an account? <Text
                 style={{ color: PREMIUM_LIGHT.accent, fontWeight: '900' }}
                 onPress={() => navigation.navigate('Register')}
               >

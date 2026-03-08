@@ -53,10 +53,10 @@ export default class AppErrorBoundary extends React.Component {
           }}
         >
           <Text style={{ fontSize: 18, fontWeight: '900', color: PREMIUM_LIGHT.text }}>
-            Something went wrong
+            Something Went Wrong
           </Text>
           <Text style={{ marginTop: 8, color: PREMIUM_LIGHT.muted, lineHeight: 20 }}>
-            The app hit an unexpected UI error. Tap Restart to reload the app.
+            An unexpected error occurred. Try reloading the app or going back to the previous screen.
           </Text>
 
           {__DEV__ ? (
@@ -97,7 +97,7 @@ export default class AppErrorBoundary extends React.Component {
               alignItems: 'center',
             }}
           >
-            <Text style={{ color: '#fff', fontWeight: '900' }}>Restart</Text>
+            <Text style={{ color: '#fff', fontWeight: '900' }}>Reload App</Text>
           </Pressable>
 
           <Pressable
@@ -112,7 +112,7 @@ export default class AppErrorBoundary extends React.Component {
               borderColor: PREMIUM_LIGHT.border,
             }}
           >
-            <Text style={{ color: PREMIUM_LIGHT.accent, fontWeight: '900' }}>Try Again</Text>
+            <Text style={{ color: PREMIUM_LIGHT.accent, fontWeight: '900' }}>Go Back</Text>
           </Pressable>
         </View>
       </View>

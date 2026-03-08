@@ -204,7 +204,7 @@ const ComplaintDetailScreen = ({ route, navigation }) => {
               <View style={localStyles.infoContent}>
                 <Text style={localStyles.infoLabel}>Vehicle</Text>
                 <Text style={localStyles.infoValue}>
-                  {complaint.vehicle?.vehicleNumber} • {complaint.vehicle?.make} {complaint.vehicle?.model}
+                  {complaint.vehicle?.vehicleNumber} • {complaint.vehicle?.type}
                 </Text>
               </View>
             </View>

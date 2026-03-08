@@ -40,9 +40,12 @@ class AdminController {
         WorkRequest.find({ status: 'PENDING' }),
         User.find({ role: 'DRIVER', isActive: true }).countDocuments(),
         Attendance.find({
-          date: { $gte: today, $lt: tomorrow }
-        }).populate('driver', 'name phone').populate('vehicle', 'vehicleNumber type hourlyRate make model'),
-        Attendance.find().populate('vehicle', 'vehicleNumber type hourlyRate make model')
+          $or: [
+            { date: { $gte: today, $lt: tomorrow } },
+            { createdAt: { $gte: today, $lt: tomorrow } }
+          ]
+        }).populate('driver', 'name phone').populate('vehicle', 'vehicleNumber type hourlyRate status'),
+        Attendance.find().populate('vehicle', 'vehicleNumber type hourlyRate status')
       ]);
 
       // Calculate metrics
@@ -79,7 +82,11 @@ class AdminController {
         return sum;
       }, 0);
 
-      console.log(`Total Today's Revenue: ₹${todayRevenue}`);
+      // Fallback: if attendance-based revenue is zero, use completed work actualCost for today.
+      const todayRevenueFromCompleted = completedToday.reduce((sum, wr) => sum + (wr.actualCost || 0), 0);
+      const effectiveTodayRevenue = todayRevenue > 0 ? todayRevenue : todayRevenueFromCompleted;
+
+      console.log(`Total Today's Revenue: ₹${effectiveTodayRevenue}`);
 
       const assignedDrivers = new Set(
         workRequests
@@ -105,7 +112,7 @@ class AdminController {
           },
           revenue: {
             total: totalRevenue,
-            today: todayRevenue
+            today: effectiveTodayRevenue
           },
           drivers: {
             total: activeDrivers,
@@ -116,7 +123,7 @@ class AdminController {
             { label: 'Total Vehicles', value: totalVehicles, icon: 'local-shipping' },
             { label: 'Available Now', value: availableVehicles, icon: 'check-circle' },
             { label: 'Work Pending', value: pendingRequests, icon: 'assignment' },
-            { label: 'Today Revenue', value: `₹${todayRevenue.toLocaleString()}`, icon: 'trending-up' }
+            { label: 'Today Revenue', value: `₹${effectiveTodayRevenue.toLocaleString()}`, icon: 'trending-up' }
           ]
         }
       });

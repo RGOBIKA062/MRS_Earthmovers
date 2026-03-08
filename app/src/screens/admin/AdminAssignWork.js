@@ -115,7 +115,7 @@ const AdminAssignWork = ({ route, navigation }) => {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 24 }}>
         <View style={styles.card}>
-          <Text style={styles.title}>Request</Text>
+          <Text style={styles.title}>Request Details</Text>
           {!!workRequest?.workType && (
             <Text style={styles.subtitle}>Type: {workRequest.workType}</Text>
           )}
@@ -133,6 +133,34 @@ const AdminAssignWork = ({ route, navigation }) => {
             </Text>
           )}
         </View>
+
+        {workRequest?.preferredVehicleType && (
+          <View style={{
+            ...styles.card,
+            backgroundColor: '#FFF3E0',
+            borderLeftWidth: 4,
+            borderLeftColor: '#FF9800'
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontSize: 18, marginRight: 8 }}>⭐</Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#FF6F00' }}>Customer's Preferred Vehicle</Text>
+            </View>
+            <View style={{
+              backgroundColor: '#FFFFFF',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 8,
+              marginTop: 8
+            }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#FF6F00' }}>
+                {workRequest.preferredVehicleType}
+              </Text>
+            </View>
+            <Text style={{ fontSize: 11, color: '#FF6F00', marginTop: 8 }}>
+              💡 Try to assign a {workRequest.preferredVehicleType} to match customer's preference
+            </Text>
+          </View>
+        )}
 
         <View style={styles.card}>
           <Text style={styles.title}>Choose Driver</Text>
@@ -180,46 +208,63 @@ const AdminAssignWork = ({ route, navigation }) => {
           {vehicles.length === 0 ? (
             <Text style={styles.subtitle}>No available vehicles.</Text>
           ) : (
-            vehicles.map((v) => (
-              <TouchableOpacity
-                key={v._id}
-                onPress={() => setSelectedVehicleId(v._id)}
-                activeOpacity={0.8}
-                style={[
-                  styles.row,
-                  {
-                    paddingVertical: 12,
-                    borderRadius: 12,
-                    paddingHorizontal: 10,
-                    marginTop: 8,
-                    borderWidth: 1,
-                    borderColor:
-                      selectedVehicleId === v._id
-                        ? 'rgba(255,138,0,0.40)'
-                        : 'transparent',
-                    backgroundColor:
-                      selectedVehicleId === v._id
-                        ? PREMIUM_LIGHT.accentSoft
-                        : 'transparent',
-                  },
-                ]}
-              >
+            vehicles.map((v) => {
+              const isMatching = workRequest?.preferredVehicleType && v.type === workRequest.preferredVehicleType;
+              return (
+                <TouchableOpacity
+                  key={v._id}
+                  onPress={() => setSelectedVehicleId(v._id)}
+                  activeOpacity={0.8}
+                  style={[
+                    styles.row,
+                    {
+                      paddingVertical: 12,
+                      borderRadius: 12,
+                      paddingHorizontal: 10,
+                      marginTop: 8,
+                      borderWidth: 2,
+                      borderColor: isMatching ? '#4CAF50' : (selectedVehicleId === v._id ? 'rgba(255,138,0,0.40)' : '#E0E0E0'),
+                      backgroundColor: isMatching ? '#F1F8F4' : (selectedVehicleId === v._id ? PREMIUM_LIGHT.accentSoft : 'transparent'),
+                    },
+                  ]}
+                >
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.title}>{v.vehicleNumber}</Text>
-                  <Text style={styles.subtitle}>
-                    {v.make} {v.model} • ₹{v.hourlyRate || 0}/hr
-                  </Text>
-                </View>
-                <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                  <Text style={[styles.subtitle, { fontSize: 12, fontWeight: '600', color: PREMIUM_LIGHT.accent }]}>
-                    {v.type}
-                  </Text>
-                  <Text style={styles.subtitle}>
-                    {selectedVehicleId === v._id ? 'Selected' : 'Select'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                      <Text style={styles.title}>{v.vehicleNumber}</Text>
+                      {isMatching && <Text style={{ marginLeft: 8, color: '#4CAF50', fontWeight: '700' }}>✓</Text>}
+                    </View>
+                    <Text style={styles.subtitle}>
+                      {v.type} • ₹{v.hourlyRate || 0}/hr
+                    </Text>
+                    {v.status && (
+                      <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted, marginTop: 4 }}>
+                        Status: {v.status}
+                      </Text>
+                    )}
+                    {isMatching && (
+                      <Text style={{ fontSize: 11, color: '#4CAF50', marginTop: 6, fontWeight: '600' }}>
+                        ✓ Matches customer preference
+                      </Text>
+                    )}
+                  </View>
+                  <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                    <View style={{
+                      backgroundColor: isMatching ? '#4CAF50' : PREMIUM_LIGHT.accentSoft,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      borderRadius: 6
+                    }}>
+                      <Text style={[styles.subtitle, { fontSize: 11, fontWeight: '600', color: isMatching ? '#fff' : PREMIUM_LIGHT.accent }]}>
+                        {v.type}
+                      </Text>
+                    </View>
+                    <Text style={[styles.subtitle, { marginTop: 8 }]}>
+                      {selectedVehicleId === v._id ? 'Selected' : 'Select'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
           )}
         </View>
 
