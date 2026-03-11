@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Alert, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useLocationSelection } from '../../context/LocationContext';
@@ -48,8 +49,17 @@ const parseDateInput = (value) => {
 const CustomerWorkRequest = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [vehicles, setVehicles] = useState([]);
-  const [startDateInput, setStartDateInput] = useState(new Date().toISOString().slice(0, 16));
-  const [endDateInput, setEndDateInput] = useState(new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16));
+  
+  // Date/Time state management
+  const [startDate, setStartDate] = useState(new Date());
+  const [endDate, setEndDate] = useState(new Date(Date.now() + 8 * 60 * 60 * 1000));
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showStartTimePicker, setShowStartTimePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+  
+  const [availabilityInfo, setAvailabilityInfo] = useState(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [formData, setFormData] = useState({
     workType: 'EARTHWORK',
     customWorkType: '',
@@ -59,9 +69,7 @@ const CustomerWorkRequest = ({ navigation }) => {
     latitude: 0,
     longitude: 0,
     address: '',
-    expectedDuration: 8,
-    startDate: new Date().toISOString(),
-    endDate: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()
+    expectedDuration: 8
   });
   const [showCustomWorkType, setShowCustomWorkType] = useState(false);
 
@@ -75,21 +83,22 @@ const CustomerWorkRequest = ({ navigation }) => {
     fetchAvailableVehicles();
   }, []);
 
+  // Auto-calculate end date based on start date and duration
   useEffect(() => {
-    const start = parseDateInput(startDateInput);
-    if (!start) return;
-
     const durationHours = Number(formData.expectedDuration) || 0;
-    if (durationHours >= 1) {
-      const computedEnd = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
-      const computedEndText = computedEnd.toISOString().slice(0, 16);
-      
-      // Always ensure end date/time is after start date/time
-      if (computedEnd > start && computedEndText !== endDateInput) {
-        setEndDateInput(computedEndText);
+    if (durationHours >= 1 && startDate) {
+      const computedEnd = new Date(startDate.getTime() + durationHours * 60 * 60 * 1000);
+      // Only update if the calculated end is different and valid
+      if (computedEnd > startDate && computedEnd.getTime() !== endDate.getTime()) {
+        setEndDate(computedEnd);
+        console.log('Auto-calculated end date:', {
+          startDate: startDate.toISOString(),
+          duration: durationHours,
+          endDate: computedEnd.toISOString()
+        });
       }
     }
-  }, [startDateInput, formData.expectedDuration]);
+  }, [startDate, formData.expectedDuration]);
 
   const fetchAvailableVehicles = async () => {
     try {
@@ -99,6 +108,107 @@ const CustomerWorkRequest = ({ navigation }) => {
       console.error('Error fetching available vehicles:', error);
     }
   };
+
+  const checkAvailability = useCallback(async () => {
+    if (!formData.vehiclesWanted || !startDate || !endDate) {
+      setAvailabilityInfo(null);
+      return;
+    }
+
+    try {
+      setCheckingAvailability(true);
+
+      // Validate dates
+      if (endDate <= startDate) {
+        setAvailabilityInfo(null);
+        return;
+      }
+
+      console.log('Checking availability for:', {
+        vehicleType: formData.vehiclesWanted,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      });
+
+      const response = await apiService.getAvailableVehiclesForDates(
+        startDate.toISOString(),
+        endDate.toISOString(),
+        formData.vehiclesWanted
+      );
+
+      console.log('Availability check response:', response?.data);
+
+      const availableVehicles = response.data.data || [];
+      const unavailableVehicles = response.data.unavailableVehicles || [];
+      const meta = response.data.meta || {};
+      const availableCount = availableVehicles.length;
+
+      if (availableCount > 0) {
+        setAvailabilityInfo({
+          available: true,
+          count: availableCount,
+          message: `${availableCount} of ${meta.totalVehicles || availableCount} ${formData.vehiclesWanted} vehicle(s) available for your selected dates`,
+          vehicles: availableVehicles
+        });
+      } else {
+        // No vehicles available - show detailed conflict information
+        let detailedMessage = `All ${meta.totalVehicles || 0} ${formData.vehiclesWanted} vehicle(s) are busy during your selected time.`;
+        
+        if (unavailableVehicles.length > 0) {
+          detailedMessage += '\n\n📋 Conflicting Bookings:';
+          unavailableVehicles.forEach(vehicle => {
+            detailedMessage += `\n\n🚜 ${vehicle.vehicleNumber}:`;
+            if (vehicle.bookings && vehicle.bookings.length > 0) {
+              vehicle.bookings.forEach(booking => {
+                const start = new Date(booking.startDate);
+                const end = new Date(booking.endDate);
+                detailedMessage += `\n  • ${start.toLocaleDateString()} ${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleDateString()} ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                if (booking.workType) {
+                  detailedMessage += ` (${booking.workType})`;
+                }
+              });
+            } else if (vehicle.currentStatus !== 'AVAILABLE') {
+              detailedMessage += `\n  Status: ${vehicle.currentStatus}`;
+            }
+          });
+        }
+        
+        setAvailabilityInfo({
+          available: false,
+          count: 0,
+          message: detailedMessage,
+          vehicles: [],
+          unavailableVehicles: unavailableVehicles
+        });
+      }
+    } catch (error) {
+      console.error('Error checking availability:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      // Set a generic error message but don't block the user
+      setAvailabilityInfo({
+        available: false,
+        count: 0,
+        message: 'Unable to check availability. Please try again or contact admin.',
+        error: true
+      });
+    } finally {
+      setCheckingAvailability(false);
+    }
+  }, [formData.vehiclesWanted, formData.expectedDuration, startDate, endDate]);
+
+  // Check availability whenever dates or vehicle type changes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      checkAvailability();
+    }, 500); // Debounce to avoid too many API calls
+
+    return () => clearTimeout(timeoutId);
+  }, [checkAvailability]);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -119,33 +229,71 @@ const CustomerWorkRequest = ({ navigation }) => {
     }
   };
 
-  const handleStartDateChange = (text) => {
-    const newStartDateInput = text.replace(' ', 'T');
-    setStartDateInput(newStartDateInput);
-    
-    // Validate against end date
-    const newStart = parseDateInput(newStartDateInput);
-    const currentEnd = parseDateInput(endDateInput);
-    
-    if (newStart && currentEnd && newStart >= currentEnd) {
-      // Auto-adjust end date to be at least 1 hour after start
-      const adjustedEnd = new Date(newStart.getTime() + (formData.expectedDuration || 1) * 60 * 60 * 1000);
-      setEndDateInput(adjustedEnd.toISOString().slice(0, 16));
+  // Date/Time Picker Handlers
+  const handleStartDateChange = (event, selectedDate) => {
+    setShowStartDatePicker(false);
+    if (event.type === 'set' && selectedDate) {
+      // Preserve the time from current startDate
+      const newDate = new Date(selectedDate);
+      newDate.setHours(startDate.getHours());
+      newDate.setMinutes(startDate.getMinutes());
+      setStartDate(newDate);
+      console.log('Start date updated:', newDate.toISOString());
     }
   };
 
-  const handleEndDateChange = (text) => {
-    const newEndDateInput = text.replace(' ', 'T');
-    const newEnd = parseDateInput(newEndDateInput);
-    const currentStart = parseDateInput(startDateInput);
-    
-    // Only allow end date if it's after start date
-    if (newEnd && currentStart && newEnd <= currentStart) {
-      Alert.alert('Invalid Date', 'End date must be after start date');
-      return;
+  const handleStartTimeChange = (event, selectedTime) => {
+    setShowStartTimePicker(false);
+    if (event.type === 'set' && selectedTime) {
+      const newDate = new Date(startDate);
+      newDate.setHours(selectedTime.getHours());
+      newDate.setMinutes(selectedTime.getMinutes());
+      setStartDate(newDate);
+      console.log('Start time updated:', newDate.toISOString());
     }
-    
-    setEndDateInput(newEndDateInput);
+  };
+
+  const handleEndDateChange = (event, selectedDate) => {
+    setShowEndDatePicker(false);
+    if (event.type === 'set' && selectedDate) {
+      // Preserve the time from current endDate
+      const newDate = new Date(selectedDate);
+      newDate.setHours(endDate.getHours());
+      newDate.setMinutes(endDate.getMinutes());
+      
+      // Validate end date is after start date
+      if (newDate <= startDate) {
+        Alert.alert('Invalid Date', 'End date must be after start date. Please adjust the duration or start date.');
+        return;
+      }
+      
+      setEndDate(newDate);
+      console.log('End date updated:', newDate.toISOString());
+    }
+  };
+
+  const handleEndTimeChange = (event, selectedTime) => {
+    setShowEndTimePicker(false);
+    if (event.type === 'set' && selectedTime) {
+      const newDate = new Date(endDate);
+      newDate.setHours(selectedTime.getHours());
+      newDate.setMinutes(selectedTime.getMinutes());
+      
+      // Validate end time is after start time
+      if (newDate <= startDate) {
+        Alert.alert('Invalid Time', 'End time must be after start time. Please adjust the duration or start time.');
+        return;
+      }
+      
+      setEndDate(newDate);
+      console.log('End time updated:', newDate.toISOString());
+    }
+  };
+
+  const handleDurationChange = (value) => {
+    const duration = parseInt(value, 10) || 0;
+    handleInputChange('expectedDuration', duration);
+    // End date will be auto-calculated by useEffect
   };
 
   useFocusEffect(
@@ -162,21 +310,19 @@ const CustomerWorkRequest = ({ navigation }) => {
   );
 
   const handleSubmit = async () => {
-    const start = parseDateInput(startDateInput);
-    const end = parseDateInput(endDateInput);
-
-    if (!start) {
-      Alert.alert('Error', 'Please provide a valid Start Date');
+    // Validate dates
+    if (!startDate) {
+      Alert.alert('Error', 'Please select a start date and time');
       return;
     }
 
-    if (!end) {
-      Alert.alert('Error', 'Please provide a valid End Date');
+    if (!endDate) {
+      Alert.alert('Error', 'Please select an end date and time');
       return;
     }
 
-    if (end <= start) {
-      Alert.alert('Error', 'End Date must be after Start Date');
+    if (endDate <= startDate) {
+      Alert.alert('Error', 'End date must be after start date');
       return;
     }
 
@@ -210,13 +356,30 @@ const CustomerWorkRequest = ({ navigation }) => {
       return;
     }
 
+    // Check availability before submitting
+    if (availabilityInfo && !availabilityInfo.available) {
+      Alert.alert(
+        'Vehicle Not Available',
+        'The selected vehicle type is not available for your chosen dates. Would you like to submit anyway? The admin will review and may suggest an alternative.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Submit Anyway', onPress: () => submitWorkRequest() }
+        ]
+      );
+      return;
+    }
+
+    await submitWorkRequest();
+  };
+
+  const submitWorkRequest = async () => {
     setLoading(true);
     try {
       const workData = {
         ...formData,
         workType: formData.workType === 'OTHERS' ? formData.customWorkType : formData.workType,
-        startDate: start.toISOString(),
-        endDate: end.toISOString(),
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
         customer: user.id,
         location: {
           latitude: formData.latitude,
@@ -229,28 +392,33 @@ const CustomerWorkRequest = ({ navigation }) => {
       delete workData.vehiclesWanted;
       console.log('Submitting work request:', workData);
       const response = await apiService.createWorkRequest(workData);
-      Alert.alert('Success', 'Work request created successfully');
-      // Reset form after successful submission
-      setFormData({
-        workType: 'EARTHWORK',
-        customWorkType: '',
-        vehiclesWanted: '',
-        customerMobile: '',
-        description: '',
-        latitude: 0,
-        longitude: 0,
-        address: '',
-        expectedDuration: 8,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()
-      });
-      setStartDateInput(new Date().toISOString().slice(0, 16));
-      setEndDateInput(new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 16));
-      if (user?.role === 'USER') {
-        navigation.navigate('CustomerHome');
-      } else if (navigation.canGoBack()) {
-        navigation.goBack();
-      }
+      Alert.alert('Success', 'Work request created successfully', [
+        {
+          text: 'OK',
+          onPress: () => {
+            // Reset form after successful submission
+            setFormData({
+              workType: 'EARTHWORK',
+              customWorkType: '',
+              vehiclesWanted: '',
+              customerMobile: '',
+              description: '',
+              latitude: 0,
+              longitude: 0,
+              address: '',
+              expectedDuration: 8
+            });
+            setStartDate(new Date());
+            setEndDate(new Date(Date.now() + 8 * 60 * 60 * 1000));
+            setAvailabilityInfo(null);
+            if (user?.role === 'USER') {
+              navigation.navigate('CustomerHome');
+            } else if (navigation.canGoBack()) {
+              navigation.goBack();
+            }
+          }
+        }
+      ]);
     } catch (error) {
       console.log('Error response:', error.response?.data);
       Alert.alert('Error', 'Failed to create work request');
@@ -315,39 +483,6 @@ const CustomerWorkRequest = ({ navigation }) => {
               </View>
             )}
 
-              <Text style={styles.label}>Vehicles Preferred *</Text>
-              <View style={{ borderWidth: 1, borderColor: PREMIUM_LIGHT.border, borderRadius: 8, backgroundColor: PREMIUM_LIGHT.surface, marginBottom: 12 }}>
-                <Picker
-                  selectedValue={formData.vehiclesWanted}
-                  onValueChange={(value) => handleInputChange('vehiclesWanted', value)}
-                  style={{ minHeight: 48, fontSize: 16, color: PREMIUM_LIGHT.text }}
-                  itemStyle={{ fontSize: 16 }}
-                >
-                  <Picker.Item label="Select vehicle type" value="" />
-                  <Picker.Item label="JCB (₹1000/hr)" value="JCB" />
-                  <Picker.Item label="Hitachi (₹1200/hr)" value="Hitachi" />
-                  <Picker.Item label="Rocksplitter (₹1500/hr)" value="Rocksplitter" />
-                  <Picker.Item label="Tractor (₹800/hr)" value="Tractor" />
-                  <Picker.Item label="Compressor (₹800/hr)" value="Compressor" />
-                  <Picker.Item label="Tipper (₹1000/hr approx.)" value="Tipper" />
-                </Picker>
-              </View>
-
-              {selectedVehicleRate > 0 ? (
-                <Text style={[styles.subtitle, { marginBottom: 12 }]}> 
-                  Estimated Payable: {toNumber(formData.expectedDuration)} hrs × {formatRupees(selectedVehicleRate)}/hr = {formatRupees(estimatedPayable)}
-                </Text>
-              ) : null}
-              <Text style={styles.label}>Customer Mobile Number *</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.customerMobile || ''}
-                onChangeText={handleCustomerMobileChange}
-                placeholder="Enter mobile number"
-                keyboardType="phone-pad"
-                maxLength={10}
-              />
-
             <Text style={styles.label}>Description *</Text>
             <TextInput
               style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
@@ -361,29 +496,216 @@ const CustomerWorkRequest = ({ navigation }) => {
             <TextInput
               style={styles.input}
               value={String(formData.expectedDuration ?? '')}
-              onChangeText={(value) => handleInputChange('expectedDuration', parseInt(value, 10) || 0)}
+              onChangeText={handleDurationChange}
               placeholder="e.g. 8"
               keyboardType="numeric"
             />
+            <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.muted, marginBottom: 12, marginTop: -8 }}>
+              ℹ️ End date will be auto-calculated based on duration
+            </Text>
 
-            <Text style={styles.label}>Start Date (YYYY-MM-DDTHH:mm) *</Text>
+            {/* Start Date & Time Section */}
+            <Text style={styles.label}>Start Date & Time *</Text>
+            <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  padding: 14,
+                  backgroundColor: PREMIUM_LIGHT.surface,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: PREMIUM_LIGHT.border,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginRight: 4
+                }}
+                onPress={() => setShowStartDatePicker(true)}
+              >
+                <Text style={{ fontSize: 14, color: PREMIUM_LIGHT.text }}>
+                  📅 {startDate.toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  padding: 14,
+                  backgroundColor: PREMIUM_LIGHT.surface,
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: PREMIUM_LIGHT.border,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginLeft: 4
+                }}
+                onPress={() => setShowStartTimePicker(true)}
+              >
+                <Text style={{ fontSize: 14, color: PREMIUM_LIGHT.text }}>
+                  🕒 {startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* End Date & Time Section */}
+            <Text style={styles.label}>End Date & Time * (Auto-calculated, editable)</Text>
+            <View style={{ flexDirection: 'row', marginBottom: 4 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  padding: 14,
+                  backgroundColor: PREMIUM_LIGHT.accent + '10',
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: PREMIUM_LIGHT.accent,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginRight: 4
+                }}
+                onPress={() => setShowEndDatePicker(true)}
+              >
+                <Text style={{ fontSize: 14, color: PREMIUM_LIGHT.text }}>
+                  📅 {endDate.toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  padding: 14,
+                  backgroundColor: PREMIUM_LIGHT.accent + '10',
+                  borderRadius: 8,
+                  borderWidth: 1,
+                  borderColor: PREMIUM_LIGHT.accent,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginLeft: 4
+                }}
+                onPress={() => setShowEndTimePicker(true)}
+              >
+                <Text style={{ fontSize: 14, color: PREMIUM_LIGHT.text }}>
+                  🕒 {endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 12, color: PREMIUM_LIGHT.muted, marginBottom: 12 }}>
+              💡 Calculated: {Math.round((endDate - startDate) / (60 * 60 * 1000))} hours duration
+            </Text>
+
+            {/* Date/Time Pickers */}
+            {showStartDatePicker && (
+              <DateTimePicker
+                value={startDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleStartDateChange}
+                minimumDate={new Date()}
+              />
+            )}
+            {showStartTimePicker && (
+              <DateTimePicker
+                value={startDate}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleStartTimeChange}
+              />
+            )}
+            {showEndDatePicker && (
+              <DateTimePicker
+                value={endDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleEndDateChange}
+                minimumDate={startDate}
+              />
+            )}
+            {showEndTimePicker && (
+              <DateTimePicker
+                value={endDate}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleEndTimeChange}
+              />
+            )}
+
+            {/* Vehicle Selection Section - After Date/Time */}
+            <Text style={styles.label}>Vehicles Preferred *</Text>
+            <View style={{ borderWidth: 1, borderColor: PREMIUM_LIGHT.border, borderRadius: 8, backgroundColor: PREMIUM_LIGHT.surface, marginBottom: 12 }}>
+              <Picker
+                selectedValue={formData.vehiclesWanted}
+                onValueChange={(value) => handleInputChange('vehiclesWanted', value)}
+                style={{ minHeight: 48, fontSize: 16, color: PREMIUM_LIGHT.text }}
+                itemStyle={{ fontSize: 16 }}
+              >
+                <Picker.Item label="Select vehicle type" value="" />
+                <Picker.Item label="JCB (₹1000/hr)" value="JCB" />
+                <Picker.Item label="Hitachi (₹1200/hr)" value="Hitachi" />
+                <Picker.Item label="Rocksplitter (₹1500/hr)" value="Rocksplitter" />
+                <Picker.Item label="Tractor (₹800/hr)" value="Tractor" />
+                <Picker.Item label="Compressor (₹800/hr)" value="Compressor" />
+                <Picker.Item label="Tipper (₹1000/hr approx.)" value="Tipper" />
+              </Picker>
+            </View>
+
+            {selectedVehicleRate > 0 ? (
+              <Text style={[styles.subtitle, { marginBottom: 12 }]}> 
+                Estimated Payable: {toNumber(formData.expectedDuration)} hrs × {formatRupees(selectedVehicleRate)}/hr = {formatRupees(estimatedPayable)}
+              </Text>
+            ) : null}
+
+            {/* Availability Status */}
+            {checkingAvailability && (
+              <View style={{ 
+                padding: 12, 
+                backgroundColor: PREMIUM_LIGHT.info + '20', 
+                borderRadius: 8, 
+                marginBottom: 12,
+                flexDirection: 'row',
+                alignItems: 'center'
+              }}>
+                <ActivityIndicator size="small" color={PREMIUM_LIGHT.info} />
+                <Text style={{ marginLeft: 8, color: PREMIUM_LIGHT.info }}>Checking availability...</Text>
+              </View>
+            )}
+
+            {availabilityInfo && !checkingAvailability && (
+              <View style={{ 
+                padding: 12, 
+                backgroundColor: availabilityInfo.available ? PREMIUM_LIGHT.success + '20' : PREMIUM_LIGHT.danger + '20',
+                borderRadius: 8, 
+                marginBottom: 12,
+                borderLeftWidth: 4,
+                borderLeftColor: availabilityInfo.available ? PREMIUM_LIGHT.success : PREMIUM_LIGHT.danger
+              }}>
+                <Text style={{ 
+                  fontWeight: '600', 
+                  color: availabilityInfo.available ? PREMIUM_LIGHT.success : PREMIUM_LIGHT.danger,
+                  marginBottom: 8,
+                  fontSize: 16
+                }}>
+                  {availabilityInfo.available ? '✓ Available' : '✗ Not Available'}
+                </Text>
+                <Text style={{ 
+                  color: PREMIUM_LIGHT.text,
+                  fontSize: 13,
+                  lineHeight: 20
+                }}>
+                  {availabilityInfo.message}
+                </Text>
+              </View>
+            )}
+
+            <Text style={styles.label}>Customer Mobile Number *</Text>
             <TextInput
               style={styles.input}
-              value={startDateInput.replace('T', ' ')}
-              onChangeText={handleStartDateChange}
-              placeholder="2026-01-15 10:30"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Text style={styles.label}>End Date (auto-calculated, editable) *</Text>
-            <TextInput
-              style={styles.input}
-              value={endDateInput.replace('T', ' ')}
-              onChangeText={handleEndDateChange}
-              placeholder="2026-01-15 18:30"
-              autoCapitalize="none"
-              autoCorrect={false}
+              value={formData.customerMobile || ''}
+              onChangeText={handleCustomerMobileChange}
+              placeholder="Enter mobile number"
+              keyboardType="phone-pad"
+              maxLength={10}
             />
 
             <Text style={styles.label}>Location / Address *</Text>

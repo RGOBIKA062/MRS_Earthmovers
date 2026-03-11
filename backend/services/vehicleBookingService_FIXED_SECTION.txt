@@ -1,0 +1,48 @@
+    // For each vehicle, check availability and get bookings
+    const vehicleAvailability = await Promise.all(
+      vehicles.map(async (vehicle) => {
+        try {
+          console.log(`🔍 Checking availability for vehicle ${vehicle.vehicleNumber}:`, {
+            vehicleId: vehicle._id,
+            queryStart: start.toISOString(),
+            queryEnd: end.toISOString()
+          });
+
+          // Get all bookings for this vehicle in the date range
+          const workRequests = await WorkRequest.find({
+            assignedVehicle: vehicle._id,
+            status: { $in: ['PENDING', 'ASSIGNED', 'IN_PROGRESS'] },
+            $or: [
+              { startDate: { $gte: start, $lt: end } },
+              { endDate: { $gt: start, $lte: end } },
+              { startDate: { $lte: start }, endDate: { $gte: end } }
+            ]
+          })
+          .select('startDate endDate workType status customer')
+          .populate('customer', 'name')
+          .lean();
+
+          console.log(`📋 Found ${workRequests.length} overlapping work requests for ${vehicle.vehicleNumber}:`, 
+            workRequests.map(req => ({
+              start: new Date(req.startDate).toISOString(),
+              end: new Date(req.endDate).toISOString(),
+              workType: req.workType
+            }))
+          );
+
+          const workAssignments = await WorkAssignment.find({
+            vehicle: vehicle._id,
+            status: { $in: ['ASSIGNED', 'STARTED', 'REACHED_SITE', 'IN_PROGRESS'] },
+            $or: [
+              { startTime: { $gte: start, $lt: end } },
+              { endTime: { $gt: start, $lte: end } },
+              { startTime: { $lte: start }, endTime: { $gte: end } }
+            ]
+          })
+          .select('startTime endTime status workRequest')
+          .populate('workRequest', 'workType')
+          .lean();
+
+          console.log(`📋 Found ${workAssignments.length} overlapping work assignments for ${vehicle.vehicleNumber}`);
+
+          // Create a Set of work request IDs that are already in workRequests

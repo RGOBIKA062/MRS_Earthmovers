@@ -282,6 +282,39 @@ class ApiService {
     });
   }
 
+  // Vehicle Availability APIs
+  async checkVehicleAvailability(vehicleId, startDate, endDate) {
+    return this.api.post('/vehicles/check-availability', {
+      vehicleId,
+      startDate,
+      endDate
+    });
+  }
+
+  async getVehicleAvailabilityCalendar(startDate, endDate, vehicleType = null) {
+    const params = { startDate, endDate };
+    if (vehicleType) {
+      params.vehicleType = vehicleType;
+    }
+    return this.api.get('/vehicles/availability-calendar', { params });
+  }
+
+  async getAvailableVehiclesForDates(startDate, endDate, vehicleType = null) {
+    const params = { startDate, endDate };
+    if (vehicleType) {
+      params.vehicleType = vehicleType;
+    }
+    return this.api.get('/vehicles/available-for-dates', { params });
+  }
+
+  async suggestAlternativeDates(vehicleId, requestedStartDate, durationHours) {
+    return this.api.post('/vehicles/suggest-dates', {
+      vehicleId,
+      requestedStartDate,
+      durationHours
+    });
+  }
+
   // Generic API methods
   async get(url, params = {}, config = {}) {
     return this.api.get(url, { ...config, params });

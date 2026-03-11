@@ -133,8 +133,9 @@ const AdminReports = ({ navigation }) => {
       const customerPhone = wr.customer?.phone || '-';
       const workType = wr.workType || '-';
       const status = wr.status || '-';
-      const estimatedCost = formatRupees(wr.estimatedCost || 0);
-      const actualCost = formatRupees(wr.actualCost || 0);
+      const payableCost = formatRupees(wr.totalPayableAmount || wr.actualCost || wr.estimatedCost || 0);
+      const paidCost = formatRupees(wr.paidAmount || 0);
+      const pendingCost = formatRupees(wr.pendingAmount || 0);
       
       const statusColor = 
         status === 'COMPLETED' ? '#4CAF50' :
@@ -152,11 +153,24 @@ const AdminReports = ({ navigation }) => {
               ${escapeHtml(status)}
             </span>
           </td>
-          <td class="amount">${escapeHtml(estimatedCost)}</td>
-          <td class="amount">${escapeHtml(actualCost)}</td>
+          <td class="amount">${escapeHtml(payableCost)}</td>
+          <td class="amount">${escapeHtml(paidCost)}</td>
+          <td class="amount">${escapeHtml(pendingCost)}</td>
         </tr>
       `;
     }).join('');
+
+    const dailyUserRows = (dailyReport.userBreakdown || []).map((userRow, index) => `
+      <tr>
+        <td class="center">${index + 1}</td>
+        <td>${escapeHtml(userRow.userName || '-')}</td>
+        <td class="center">${escapeHtml(userRow.phone || '-')}</td>
+        <td class="center">${escapeHtml(String(userRow.totalWorks || 0))}</td>
+        <td class="center">${escapeHtml(String((userRow.utilizationRate || 0).toFixed(1)))}%</td>
+        <td class="amount">${escapeHtml(formatRupees(userRow.totalPaidAmount || 0))}</td>
+        <td class="amount">${escapeHtml(formatRupees(userRow.pendingAmount || 0))}</td>
+      </tr>
+    `).join('');
 
     // Completed Work Table
     const completedWorkRows = (dailyReport.completedWork || []).map((wr, index) => {
@@ -261,7 +275,7 @@ const AdminReports = ({ navigation }) => {
           }
           .summary-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 12px;
             margin-top: 12px;
           }
@@ -388,7 +402,19 @@ const AdminReports = ({ navigation }) => {
             </div>
             <div class="summary-card">
               <div class="summary-value">${escapeHtml(formatRupees(dailyReport.totalRevenue || 0))}</div>
-              <div class="summary-label">Total Revenue</div>
+              <div class="summary-label">Collected Revenue</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-value">${escapeHtml(formatRupees(dailyReport.totalPaidAmount || 0))}</div>
+              <div class="summary-label">Total Paid</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-value">${escapeHtml(formatRupees(dailyReport.totalPendingAmount || 0))}</div>
+              <div class="summary-label">Pending Amount</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-value">${escapeHtml(String(dailyReport.totalUsersUtilized || 0))}</div>
+              <div class="summary-label">Users Utilized</div>
             </div>
           </div>
           <div style="text-align: center; margin-top: 12px; font-size: 11px; opacity: 0.9;">
@@ -397,7 +423,6 @@ const AdminReports = ({ navigation }) => {
         </div>
 
         <h2 class="section-title">
-          <span class="section-icon">📋</span>
           All Work Requests Received Today
         </h2>
         ${dailyReport.workRequests && dailyReport.workRequests.length > 0 ? `
@@ -409,8 +434,9 @@ const AdminReports = ({ navigation }) => {
                 <th style="width: 12%;">Phone</th>
                 <th style="width: 20%;">Work Type</th>
                 <th style="width: 12%;">Status</th>
-                <th style="width: 15%;">Estimated Cost</th>
-                <th style="width: 15%;">Actual Cost</th>
+                <th style="width: 15%;">Payable</th>
+                <th style="width: 15%;">Paid</th>
+                <th style="width: 15%;">Pending</th>
               </tr>
             </thead>
             <tbody>
@@ -422,7 +448,30 @@ const AdminReports = ({ navigation }) => {
         `}
 
         <h2 class="section-title">
-          <span class="section-icon">✅</span>
+          User-wise Utilization & Pending Amount
+        </h2>
+        ${(dailyReport.userBreakdown || []).length > 0 ? `
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 6%;">S.No</th>
+                <th style="width: 22%;">User</th>
+                <th style="width: 14%;">Phone</th>
+                <th style="width: 10%;">Works</th>
+                <th style="width: 12%;">Utilization</th>
+                <th style="width: 18%;">Paid</th>
+                <th style="width: 18%;">Pending</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dailyUserRows}
+            </tbody>
+          </table>
+        ` : `
+          <div class="no-data">📭 No user analytics for this day</div>
+        `}
+
+        <h2 class="section-title">
           Completed Work Details
         </h2>
         ${dailyReport.completedWork && dailyReport.completedWork.length > 0 ? `
@@ -492,6 +541,18 @@ const AdminReports = ({ navigation }) => {
         </tr>
       `;
     }).join('');
+
+    const monthlyUserRows = (monthlyReport.userBreakdown || []).map((userRow, index) => `
+      <tr>
+        <td class="center">${index + 1}</td>
+        <td>${escapeHtml(userRow.userName || '-')}</td>
+        <td class="center">${escapeHtml(userRow.phone || '-')}</td>
+        <td class="center">${escapeHtml(String(userRow.totalWorks || 0))}</td>
+        <td class="center">${escapeHtml(String((userRow.utilizationRate || 0).toFixed(1)))}%</td>
+        <td class="amount">${escapeHtml(formatRupees(userRow.totalPaidAmount || 0))}</td>
+        <td class="amount">${escapeHtml(formatRupees(userRow.pendingAmount || 0))}</td>
+      </tr>
+    `).join('');
 
     // Work summary
     const completionRate = monthlyReport.totalWorkRequests > 0 
@@ -585,7 +646,7 @@ const AdminReports = ({ navigation }) => {
           }
           .summary-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 12px;
             margin-bottom: 12px;
           }
@@ -734,6 +795,18 @@ const AdminReports = ({ navigation }) => {
               <div class="summary-value">${escapeHtml(formatRupees(monthlyReport.totalRevenue || 0))}</div>
               <div class="summary-label">Total Revenue</div>
             </div>
+            <div class="summary-card">
+              <div class="summary-value">${escapeHtml(formatRupees(monthlyReport.totalPaidAmount || 0))}</div>
+              <div class="summary-label">Total Paid</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-value">${escapeHtml(formatRupees(monthlyReport.totalPendingAmount || 0))}</div>
+              <div class="summary-label">Pending Amount</div>
+            </div>
+            <div class="summary-card">
+              <div class="summary-value">${escapeHtml(String(monthlyReport.totalUsersUtilized || 0))}</div>
+              <div class="summary-label">Users Utilized</div>
+            </div>
           </div>
           <div class="insights-grid">
             <div class="insight-item">
@@ -775,6 +848,31 @@ const AdminReports = ({ navigation }) => {
           </div>
         ` : `
           <div class="no-data">📭 No revenue data available for this month</div>
+        `}
+
+        <h2 class="section-title">
+          <span class="section-icon">👥</span>
+          User-wise Utilization & Pending Amount
+        </h2>
+        ${(monthlyReport.userBreakdown || []).length > 0 ? `
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 6%;">S.No</th>
+                <th style="width: 22%;">User</th>
+                <th style="width: 14%;">Phone</th>
+                <th style="width: 10%;">Works</th>
+                <th style="width: 12%;">Utilization</th>
+                <th style="width: 18%;">Paid</th>
+                <th style="width: 18%;">Pending</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${monthlyUserRows}
+            </tbody>
+          </table>
+        ` : `
+          <div class="no-data">📭 No user analytics for this month</div>
         `}
 
         <div class="footer">
@@ -986,7 +1084,7 @@ const AdminReports = ({ navigation }) => {
                   <Text style={[localStyles.summaryValue, { color: '#FF9800', fontSize: 16 }]}>
                     {formatRupees(dailyReport.totalRevenue || 0)}
                   </Text>
-                  <Text style={localStyles.summaryLabel}>Revenue</Text>
+                  <Text style={localStyles.summaryLabel}>Collected Revenue</Text>
                 </View>
               </View>
 
@@ -1000,8 +1098,64 @@ const AdminReports = ({ navigation }) => {
                       ? ((toNumber(dailyReport.completedWork) / dailyReport.totalWorkRequests) * 100).toFixed(1) 
                       : '0.0'}%
                   </Text>
+                  {'\n'}Billed (Completed Work): <Text style={{ fontWeight: '700' }}>
+                    {formatRupees(dailyReport.billedRevenue || 0)}
+                  </Text>
                 </Text>
               </View>
+              <View style={localStyles.summaryCard}>
+                <Text style={[localStyles.summaryValue, { color: '#0EA5E9', fontSize: 16 }]}>
+                  {formatRupees(dailyReport.totalPaidAmount || 0)}
+                </Text>
+                <Text style={localStyles.summaryLabel}>Paid Amount</Text>
+              </View>
+              <View style={localStyles.summaryCard}>
+                <Text style={[localStyles.summaryValue, { color: '#EF4444', fontSize: 16 }]}> 
+                  {formatRupees(dailyReport.totalPendingAmount || 0)}
+                </Text>
+                <Text style={localStyles.summaryLabel}>Pending Amount</Text>
+              </View>
+              <View style={localStyles.summaryCard}>
+                <Text style={[localStyles.summaryValue, { color: '#7C3AED' }]}>
+                  {toNumber(dailyReport.totalUsersUtilized) || 0}
+                </Text>
+                <Text style={localStyles.summaryLabel}>Users Utilized</Text>
+              </View>
+            </View>
+
+            {/* User-wise Analytics */}
+            <View style={localStyles.card}>
+              <Text style={[styles.title, { marginBottom: 12 }]}>User-wise Analytics</Text>
+              {dailyReport.userBreakdown && dailyReport.userBreakdown.length > 0 ? (
+                <View style={{ gap: 10 }}>
+                  {dailyReport.userBreakdown.map((userRow, index) => (
+                    <View key={userRow.userId || index} style={localStyles.workRequestItem}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: PREMIUM_LIGHT.text }}>
+                          {userRow.userName || 'Unknown User'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted }}>
+                          Works: {toNumber(userRow.totalWorks)}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.muted, marginBottom: 6 }}>
+                        {userRow.phone || 'No phone'}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.text }}>
+                        Paid: <Text style={{ fontWeight: '700', color: '#0EA5E9' }}>{formatRupees(userRow.totalPaidAmount || 0)}</Text>
+                        {'  '}Pending: <Text style={{ fontWeight: '700', color: '#EF4444' }}>{formatRupees(userRow.pendingAmount || 0)}</Text>
+                      </Text>
+                      <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.text, marginTop: 4 }}>
+                        Completion: <Text style={{ fontWeight: '700' }}>{toNumber(userRow.utilizationRate || 0).toFixed(1)}%</Text>
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={{ textAlign: 'center', color: PREMIUM_LIGHT.muted, padding: 16 }}>
+                  No user utilization data for this day
+                </Text>
+              )}
             </View>
 
             {/* Work Requests Details */}
@@ -1031,11 +1185,14 @@ const AdminReports = ({ navigation }) => {
                           {wr.workType}
                         </Text>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                          <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.muted }}>
-                            Est: {formatRupees(wr.estimatedCost || 0)}
+                          <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.muted, flex: 1 }}>
+                            Payable: {formatRupees(wr.totalPayableAmount || wr.actualCost || wr.estimatedCost || 0)}
                           </Text>
-                          <Text style={{ fontSize: 10, color: '#2E7D32', fontWeight: '600' }}>
-                            Actual: {formatRupees(wr.actualCost || 0)}
+                          <Text style={{ fontSize: 10, color: '#0EA5E9', fontWeight: '600', flex: 1, textAlign: 'center' }}>
+                            Paid: {formatRupees(wr.paidAmount || 0)}
+                          </Text>
+                          <Text style={{ fontSize: 10, color: '#EF4444', fontWeight: '600', flex: 1, textAlign: 'right' }}>
+                            Pending: {formatRupees(wr.pendingAmount || 0)}
                           </Text>
                         </View>
                       </View>
@@ -1102,6 +1259,24 @@ const AdminReports = ({ navigation }) => {
                   </Text>
                 </Text>
               </View>
+              <View style={localStyles.summaryCard}>
+                <Text style={[localStyles.summaryValue, { color: '#0EA5E9', fontSize: 16 }]}>
+                  {formatRupees(monthlyReport.totalPaidAmount || 0)}
+                </Text>
+                <Text style={localStyles.summaryLabel}>Paid Amount</Text>
+              </View>
+              <View style={localStyles.summaryCard}>
+                <Text style={[localStyles.summaryValue, { color: '#EF4444', fontSize: 16 }]}> 
+                  {formatRupees(monthlyReport.totalPendingAmount || 0)}
+                </Text>
+                <Text style={localStyles.summaryLabel}>Pending Amount</Text>
+              </View>
+              <View style={localStyles.summaryCard}>
+                <Text style={[localStyles.summaryValue, { color: '#7C3AED' }]}>
+                  {toNumber(monthlyReport.totalUsersUtilized) || 0}
+                </Text>
+                <Text style={localStyles.summaryLabel}>Users Utilized</Text>
+              </View>
             </View>
 
             {/* Revenue by Day */}
@@ -1136,6 +1311,80 @@ const AdminReports = ({ navigation }) => {
               ) : (
                 <Text style={{ textAlign: 'center', color: PREMIUM_LIGHT.muted, padding: 16 }}>
                   No revenue data for this month
+                </Text>
+              )}
+            </View>
+
+            {/* Monthly User-wise Analytics */}
+            <View style={localStyles.card}>
+              <Text style={[styles.title, { marginBottom: 12 }]}>👥 User-wise Analytics</Text>
+              {monthlyReport.userBreakdown && monthlyReport.userBreakdown.length > 0 ? (
+                <View style={{ gap: 10 }}>
+                  {monthlyReport.userBreakdown.map((userRow, index) => (
+                    <View key={userRow.userId || index} style={localStyles.workRequestItem}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: PREMIUM_LIGHT.text }}>
+                          {userRow.userName || 'Unknown User'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted }}>
+                          Works: {toNumber(userRow.totalWorks)}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.muted, marginBottom: 6 }}>
+                        {userRow.phone || 'No phone'}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.text }}>
+                        Paid: <Text style={{ fontWeight: '700', color: '#0EA5E9' }}>{formatRupees(userRow.totalPaidAmount || 0)}</Text>
+                        {'  '}Pending: <Text style={{ fontWeight: '700', color: '#EF4444' }}>{formatRupees(userRow.pendingAmount || 0)}</Text>
+                      </Text>
+                      <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.text, marginTop: 4 }}>
+                        Completion: <Text style={{ fontWeight: '700' }}>{toNumber(userRow.utilizationRate || 0).toFixed(1)}%</Text>
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={{ textAlign: 'center', color: PREMIUM_LIGHT.muted, padding: 16 }}>
+                  No user utilization data for this month
+                </Text>
+              )}
+            </View>
+
+            {/* Monthly Work Financials */}
+            <View style={localStyles.card}>
+              <Text style={[styles.title, { marginBottom: 12 }]}>💰 Work Financial Details</Text>
+              {monthlyReport.workRequests && monthlyReport.workRequests.length > 0 ? (
+                <View style={{ gap: 10 }}>
+                  {monthlyReport.workRequests.map((wr, index) => (
+                    <View key={wr._id || index} style={localStyles.workRequestItem}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: PREMIUM_LIGHT.text, flex: 1 }} numberOfLines={1}>
+                          {wr.customer?.name || 'Unknown'}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.muted }}>
+                          {formatDateDisplay(wr.createdAt)}
+                        </Text>
+                      </View>
+                      <Text style={{ fontSize: 11, color: PREMIUM_LIGHT.muted, marginBottom: 6 }} numberOfLines={1}>
+                        {wr.workType || '-'}
+                      </Text>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 10, color: PREMIUM_LIGHT.muted, flex: 1 }}>
+                          Payable: {formatRupees(wr.totalPayableAmount || wr.actualCost || wr.estimatedCost || 0)}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: '#0EA5E9', fontWeight: '600', flex: 1, textAlign: 'center' }}>
+                          Paid: {formatRupees(wr.paidAmount || 0)}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: '#EF4444', fontWeight: '600', flex: 1, textAlign: 'right' }}>
+                          Pending: {formatRupees(wr.pendingAmount || 0)}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={{ textAlign: 'center', color: PREMIUM_LIGHT.muted, padding: 16 }}>
+                  No work requests for this month
                 </Text>
               )}
             </View>

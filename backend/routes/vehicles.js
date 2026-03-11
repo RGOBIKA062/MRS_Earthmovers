@@ -8,6 +8,10 @@ router.post('/', auth, roleAuth(['ADMIN']), vehicleValidation, vehicleController
 router.get('/', auth, vehicleController.getVehicles);
 router.get('/available', auth, vehicleController.getAvailableVehicles);
 router.get('/emergency', auth, roleAuth(['ADMIN']), vehicleController.getEmergencyVehicles);
+router.get('/availability-calendar', auth, vehicleController.getAvailabilityCalendar);
+router.get('/available-for-dates', auth, vehicleController.getAvailableForDates);
+router.post('/check-availability', auth, vehicleController.checkAvailability);
+router.post('/suggest-dates', auth, vehicleController.suggestDates);
 router.get('/:id', auth, vehicleController.getVehicle);
 router.put('/:id', auth, roleAuth(['ADMIN']), vehicleController.updateVehicle);
 router.delete('/:id', auth, roleAuth(['ADMIN']), vehicleController.deleteVehicle);

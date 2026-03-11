@@ -85,6 +85,9 @@ const workRequestSchema = new mongoose.Schema({
   completedAt: {
     type: Date
   },
+  cancelledAt: {
+    type: Date
+  },
   notes: String,
   createdAt: {
     type: Date,

@@ -1,6 +1,12 @@
 const Vehicle = require('../models/Vehicle');
 const winston = require('winston');
 const { releaseVehicleIfNoActiveAssignments } = require('../services/vehicleAvailabilityService');
+const {
+  checkVehicleAvailability,
+  getVehicleAvailabilityCalendar,
+  getAvailableVehiclesForDateRange,
+  suggestAlternativeDates
+} = require('../services/vehicleBookingService');
 
 const logger = winston.createLogger({
   level: 'info',
@@ -243,6 +249,259 @@ class VehicleController {
       res.status(400).json({
         success: false,
         message: error.message
+      });
+    }
+  }
+
+  /**
+   * Check availability for a specific vehicle and date range
+   * POST /api/vehicles/check-availability
+   * Body: { vehicleId, startDate, endDate }
+   */
+  async checkAvailability(req, res) {
+    try {
+      const { vehicleId, startDate, endDate } = req.body;
+
+      if (!vehicleId || !startDate || !endDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'vehicleId, startDate, and endDate are required',
+          received: { vehicleId, startDate, endDate }
+        });
+      }
+
+      // Validate dates
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format'
+        });
+      }
+
+      logger.info('Checking vehicle availability', { vehicleId, startDate, endDate });
+
+      const result = await checkVehicleAvailability(vehicleId, startDate, endDate);
+
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      logger.error('Check availability error:', {
+        error: error.message,
+        stack: error.stack,
+        body: req.body
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Failed to check vehicle availability',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  /**
+   * Get availability calendar for all vehicles or specific type
+   * GET /api/vehicles/availability-calendar
+   * Query params: startDate, endDate, vehicleType (optional)
+   */
+  async getAvailabilityCalendar(req, res) {
+    try {
+      const { startDate, endDate, vehicleType } = req.query;
+
+      // Validate required parameters
+      if (!startDate || !endDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'startDate and endDate are required',
+          received: { startDate, endDate, vehicleType }
+        });
+      }
+
+      // Validate date format
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      if (isNaN(start.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid startDate format. Expected ISO 8601 date string.'
+        });
+      }
+
+      if (isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid endDate format. Expected ISO 8601 date string.'
+        });
+      }
+
+      if (end <= start) {
+        return res.status(400).json({
+          success: false,
+          message: 'endDate must be after startDate'
+        });
+      }
+
+      logger.info('Fetching availability calendar', { startDate, endDate, vehicleType });
+
+      const calendar = await getVehicleAvailabilityCalendar({
+        startDate,
+        endDate,
+        vehicleType
+      });
+
+      res.json({
+        success: true,
+        data: calendar,
+        meta: {
+          totalVehicles: calendar.length,
+          availableVehicles: calendar.filter(v => v.isCurrentlyAvailable).length,
+          bookedVehicles: calendar.filter(v => !v.isCurrentlyAvailable).length,
+          dateRange: { startDate, endDate },
+          vehicleType: vehicleType || 'all'
+        }
+      });
+    } catch (error) {
+      logger.error('Get availability calendar error:', {
+        error: error.message,
+        stack: error.stack,
+        query: req.query
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get availability calendar',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  /**
+   * Get available vehicles for a specific date range
+   * GET /api/vehicles/available-for-dates
+   * Query params: startDate, endDate, vehicleType (optional)
+   */
+  async getAvailableForDates(req, res) {
+    try {
+      const { startDate, endDate, vehicleType } = req.query;
+
+      if (!startDate || !endDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'startDate and endDate are required',
+          received: { startDate, endDate, vehicleType }
+        });
+      }
+
+      // Validate dates
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid date format'
+        });
+      }
+
+      logger.info('Getting available vehicles for dates', { startDate, endDate, vehicleType });
+
+      const result = await getAvailableVehiclesForDateRange(
+        startDate,
+        endDate,
+        vehicleType
+      );
+
+      res.json({
+        success: true,
+        data: result.available, // Keep same format for backward compatibility
+        unavailableVehicles: result.unavailable, // Add detailed conflict info
+        meta: {
+          totalVehicles: result.totalVehicles,
+          totalAvailable: result.availableCount,
+          totalUnavailable: result.unavailableCount,
+          dateRange: { startDate, endDate },
+          vehicleType: vehicleType || 'all'
+        }
+      });
+    } catch (error) {
+      logger.error('Get available vehicles for dates error:', {
+        error: error.message,
+        stack: error.stack,
+        query: req.query
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get available vehicles for date range',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+  }
+
+  /**
+   * Suggest alternative dates if vehicle is not available
+   * POST /api/vehicles/suggest-dates
+   * Body: { vehicleId, requestedStartDate, durationHours }
+   */
+  async suggestDates(req, res) {
+    try {
+      const { vehicleId, requestedStartDate, durationHours } = req.body;
+
+      if (!vehicleId || !requestedStartDate || !durationHours) {
+        return res.status(400).json({
+          success: false,
+          message: 'vehicleId, requestedStartDate, and durationHours are required',
+          received: { vehicleId, requestedStartDate, durationHours }
+        });
+      }
+
+      // Validate date and duration
+      const requestedDate = new Date(requestedStartDate);
+      if (isNaN(requestedDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid requestedStartDate format'
+        });
+      }
+
+      const duration = Number(durationHours);
+      if (isNaN(duration) || duration <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'durationHours must be a positive number'
+        });
+      }
+
+      logger.info('Suggesting alternative dates', { vehicleId, requestedStartDate, durationHours });
+
+      const suggestions = await suggestAlternativeDates(
+        vehicleId,
+        requestedStartDate,
+        durationHours
+      );
+
+      res.json({
+        success: true,
+        data: suggestions,
+        meta: {
+          totalSuggestions: suggestions.length,
+          requestedDate: requestedStartDate,
+          durationHours
+        }
+      });
+    } catch (error) {
+      logger.error('Suggest dates error:', {
+        error: error.message,
+        stack: error.stack,
+        body: req.body
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Failed to suggest alternative dates',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
   }

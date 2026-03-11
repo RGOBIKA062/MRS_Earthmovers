@@ -1,6 +1,7 @@
 const WorkRequest = require('../models/WorkRequest');
 const WorkAssignment = require('../models/WorkAssignment');
 const Vehicle = require('../models/Vehicle');
+const Payment = require('../models/Payment');
 require('../models/PhotoProof');
 const winston = require('winston');
 const mongoose = require('mongoose');
@@ -29,6 +30,7 @@ const VEHICLE_TYPE_HOURLY_RATE = {
 };
 
 const PROGRESS_STATUSES = new Set(['STARTED', 'REACHED_SITE', 'IN_PROGRESS']);
+const PAYMENT_SUCCESS_STATUSES = ['SUCCESS', 'COMPLETED'];
 
 const roundCurrency = (value) => {
   const parsed = Number(value);
@@ -115,6 +117,115 @@ const attachBillingSummary = (workRequestDoc, assignment = null) => {
   }
 
   return workRequest;
+};
+
+const buildFinancialAnalyticsForWorkRequests = async (workRequests) => {
+  const workRequestIds = workRequests.map((wr) => wr._id);
+
+  const paymentsByWorkRequest = workRequestIds.length
+    ? await Payment.aggregate([
+      {
+        $match: {
+          workRequest: { $in: workRequestIds },
+          status: { $in: PAYMENT_SUCCESS_STATUSES }
+        }
+      },
+      {
+        $group: {
+          _id: '$workRequest',
+          totalPaid: { $sum: '$amount' }
+        }
+      }
+    ])
+    : [];
+
+  const paidMap = new Map(
+    paymentsByWorkRequest.map((row) => [String(row._id), roundCurrency(row.totalPaid || 0)])
+  );
+
+  const userBreakdownMap = new Map();
+  let totalPayableAmount = 0;
+  let totalPaidAmount = 0;
+  let totalPendingAmount = 0;
+
+  const workRequestsWithFinancials = workRequests.map((wr) => {
+    const wrObj = typeof wr.toObject === 'function' ? wr.toObject() : { ...wr };
+
+    const payableAmount = roundCurrency(
+      wrObj.payableAmount ||
+      wrObj.billingSummary?.payableAmount ||
+      wrObj.actualCost ||
+      wrObj.estimatedCost ||
+      0
+    );
+    const paidAmount = roundCurrency(paidMap.get(String(wrObj._id)) || 0);
+    const pendingAmount = roundCurrency(Math.max(0, payableAmount - paidAmount));
+
+    totalPayableAmount += payableAmount;
+    totalPaidAmount += paidAmount;
+    totalPendingAmount += pendingAmount;
+
+    const customerId = wrObj.customer?._id ? String(wrObj.customer._id) : null;
+    if (customerId) {
+      const existing = userBreakdownMap.get(customerId) || {
+        userId: customerId,
+        userName: wrObj.customer?.name || 'Unknown',
+        phone: wrObj.customer?.phone || '',
+        totalWorks: 0,
+        completedWorks: 0,
+        totalPayableAmount: 0,
+        totalPaidAmount: 0,
+        pendingAmount: 0,
+        workTypes: new Set()
+      };
+
+      existing.totalWorks += 1;
+      if (wrObj.status === 'COMPLETED') {
+        existing.completedWorks += 1;
+      }
+      existing.totalPayableAmount += payableAmount;
+      existing.totalPaidAmount += paidAmount;
+      existing.pendingAmount += pendingAmount;
+      if (wrObj.workType) {
+        existing.workTypes.add(wrObj.workType);
+      }
+
+      userBreakdownMap.set(customerId, existing);
+    }
+
+    return {
+      ...wrObj,
+      totalPayableAmount: payableAmount,
+      paidAmount,
+      pendingAmount
+    };
+  });
+
+  const userBreakdown = Array.from(userBreakdownMap.values())
+    .map((userRow) => ({
+      userId: userRow.userId,
+      userName: userRow.userName,
+      phone: userRow.phone,
+      totalWorks: userRow.totalWorks,
+      completedWorks: userRow.completedWorks,
+      utilizationRate: userRow.totalWorks > 0
+        ? roundCurrency((userRow.completedWorks / userRow.totalWorks) * 100)
+        : 0,
+      totalPayableAmount: roundCurrency(userRow.totalPayableAmount),
+      totalPaidAmount: roundCurrency(userRow.totalPaidAmount),
+      pendingAmount: roundCurrency(userRow.pendingAmount),
+      workTypesUsed: Array.from(userRow.workTypes)
+    }))
+    .sort((a, b) => b.totalPayableAmount - a.totalPayableAmount);
+
+  return {
+    workRequestsWithFinancials,
+    totalPayableAmount: roundCurrency(totalPayableAmount),
+    totalPaidAmount: roundCurrency(totalPaidAmount),
+    totalPendingAmount: roundCurrency(totalPendingAmount),
+    totalUsersUtilized: userBreakdown.length,
+    userBreakdown
+  };
 };
 
 class WorkRequestController {
@@ -423,17 +534,32 @@ class WorkRequestController {
         const provisionalBilling = buildBillingSummary(workRequest, null);
         workRequest.actualCost = provisionalBilling.payableAmount;
       }
+      if (status === 'CANCELLED') {
+        workRequest.cancelledAt = new Date();
+        logger.info(`Work request ${workRequest._id} cancelled`, {
+          workRequestId: workRequest._id,
+          assignedVehicle: workRequest.assignedVehicle,
+          previousStatus: workRequest.status
+        });
+      }
       if (notes) workRequest.notes = notes;
       
       await workRequest.save();
 
+      // Handle vehicle and assignment cleanup for completed/cancelled requests
       if ((status === 'COMPLETED' || status === 'CANCELLED') && workRequest.assignedVehicle) {
+        logger.info(`Processing vehicle release for work request ${workRequest._id}`, {
+          vehicleId: workRequest.assignedVehicle,
+          status
+        });
+
         const assignment = await WorkAssignment.findOne({
           workRequest: workRequest._id,
           status: { $in: ['ASSIGNED', 'STARTED', 'REACHED_SITE', 'IN_PROGRESS'] }
         }).populate('vehicle', 'hourlyRate type');
 
         if (assignment) {
+          logger.info(`Found active assignment ${assignment._id}, updating status to ${status}`);
           assignment.status = status === 'COMPLETED' ? 'COMPLETED' : 'CANCELLED';
           assignment.endTime = new Date();
           assignment.updatedAt = new Date();
@@ -441,9 +567,15 @@ class WorkRequestController {
             assignment.completedAt = new Date();
           }
           await assignment.save();
+        } else {
+          logger.info(`No active assignment found for work request ${workRequest._id}`);
         }
 
-        await releaseVehicleIfNoActiveAssignments(workRequest.assignedVehicle);
+        // Release vehicle regardless of whether assignment exists
+        const releasedVehicle = await releaseVehicleIfNoActiveAssignments(workRequest.assignedVehicle);
+        if (releasedVehicle) {
+          logger.info(`Successfully released vehicle ${releasedVehicle.vehicleNumber}`);
+        }
 
         if (status === 'COMPLETED') {
           const billingSummary = buildBillingSummary(workRequest, assignment);
@@ -587,14 +719,19 @@ class WorkRequestController {
       const completedWork = await WorkRequest.find({
         status: 'COMPLETED',
         completedAt: { $gte: startDate, $lte: endDate }
-      }).populate('assignedVehicle', 'vehicleNumber type');
+      })
+        .populate('assignedVehicle', 'vehicleNumber type')
+        .populate('customer', 'name phone');
 
-      const totalRevenue = completedWork.reduce((sum, wr) => sum + (wr.actualCost || 0), 0);
+      const billedRevenue = completedWork.reduce((sum, wr) => sum + (wr.actualCost || 0), 0);
       const totalVehicles = new Set(
         completedWork
           .map(wr => wr.assignedVehicle?._id?.toString())
           .filter(Boolean)
       ).size;
+
+      const financials = await buildFinancialAnalyticsForWorkRequests(workRequests);
+      const totalRevenue = financials.totalPaidAmount;
 
       res.json({
         success: true,
@@ -603,8 +740,14 @@ class WorkRequestController {
           totalWorkRequests: workRequests.length,
           completedWork: completedWork.length,
           totalRevenue,
+          billedRevenue,
           totalVehicles,
-          workRequests,
+          totalPayableAmount: financials.totalPayableAmount,
+          totalPaidAmount: financials.totalPaidAmount,
+          totalPendingAmount: financials.totalPendingAmount,
+          totalUsersUtilized: financials.totalUsersUtilized,
+          userBreakdown: financials.userBreakdown,
+          workRequests: financials.workRequestsWithFinancials,
           completedWork
         }
       });
@@ -655,6 +798,8 @@ class WorkRequestController {
         revenueByDay[day] = (revenueByDay[day] || 0) + (wr.actualCost || 0);
       });
 
+      const financials = await buildFinancialAnalyticsForWorkRequests(workRequests);
+
       res.json({
         success: true,
         data: {
@@ -664,8 +809,13 @@ class WorkRequestController {
           completedWork: completedWork.length,
           totalRevenue,
           totalVehicles,
+          totalPayableAmount: financials.totalPayableAmount,
+          totalPaidAmount: financials.totalPaidAmount,
+          totalPendingAmount: financials.totalPendingAmount,
+          totalUsersUtilized: financials.totalUsersUtilized,
+          userBreakdown: financials.userBreakdown,
           revenueByDay,
-          workRequests,
+          workRequests: financials.workRequestsWithFinancials,
           completedWork
         }
       });
