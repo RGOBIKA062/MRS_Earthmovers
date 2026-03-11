@@ -1,9 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, RefreshControl, FlatList, TouchableOpacity, TextInput } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { View, Text, ActivityIndicator, RefreshControl, SectionList, TouchableOpacity, TextInput } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import apiService from '../../services/apiService';
 import styles from '../../styles/styles';
 import { PREMIUM_LIGHT } from '../../styles/tokens';
+
+const VEHICLE_TYPE_ICON = {
+  JCB: 'excavator',
+  Hitachi: 'excavator',
+  Rocksplitter: 'hammer-wrench',
+  Tractor: 'tractor-variant',
+  Tipper: 'dump-truck',
+  Compressor: 'air-filter',
+  default: 'truck-outline',
+};
 
 const AdminVehicles = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
@@ -32,6 +44,12 @@ const AdminVehicles = ({ navigation }) => {
   useEffect(() => {
     fetchVehicles();
   }, [filters]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchVehicles();
+    }, [filters])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -65,24 +83,50 @@ const AdminVehicles = ({ navigation }) => {
     }
   };
 
+  const getVehicleIconName = (type) => VEHICLE_TYPE_ICON[type] || VEHICLE_TYPE_ICON.default;
+
+  const groupedVehicles = useMemo(() => {
+    const grouped = vehicles.reduce((acc, vehicle) => {
+      const type = vehicle.type || 'Other';
+      if (!acc[type]) {
+        acc[type] = [];
+      }
+      acc[type].push(vehicle);
+      return acc;
+    }, {});
+
+    return Object.keys(grouped)
+      .sort((a, b) => a.localeCompare(b))
+      .map((type) => ({
+        title: type,
+        data: grouped[type].sort((a, b) => {
+          const rateDiff = Number(a.hourlyRate || 0) - Number(b.hourlyRate || 0);
+          if (rateDiff !== 0) return rateDiff;
+          return String(a.vehicleNumber || '').localeCompare(String(b.vehicleNumber || ''));
+        }),
+      }));
+  }, [vehicles]);
+
   const renderVehicle = ({ item }) => (
     <TouchableOpacity 
       style={styles.vehicleCard}
       onPress={() => navigation.navigate('VehicleDetails', { vehicleId: item._id })}
     >
       <View style={styles.vehicleIcon}>
-        <Text style={{ fontSize: 24, color: '#fff' }}>🚛</Text>
+        <MaterialCommunityIcons
+          name={getVehicleIconName(item.type)}
+          size={28}
+          color={PREMIUM_LIGHT.accent}
+        />
       </View>
       
       <View style={styles.vehicleInfo}>
-        <Text style={styles.vehicleNumber}>
-          {item.vehicleNumber}
-        </Text>
         <Text style={styles.vehicleDetails}>
-          {item.type}
+          Hourly Rate: ₹{item.hourlyRate}/hr
         </Text>
+        <Text style={styles.vehicleNumber}>{item.vehicleNumber}</Text>
         <Text style={styles.vehicleDetails}>
-          Rate: ₹{item.hourlyRate}/hr • Status: {item.status}
+          Status: {getStatusText(item.status)}
         </Text>
         {item.driver && (
           <Text style={styles.vehicleDetails}>
@@ -110,6 +154,23 @@ const AdminVehicles = ({ navigation }) => {
         </Text>
       </View>
     </TouchableOpacity>
+  );
+
+  const renderSectionHeader = ({ section: { title } }) => (
+    <View
+      style={{
+        backgroundColor: PREMIUM_LIGHT.card,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: PREMIUM_LIGHT.border,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        marginTop: 12,
+        marginBottom: 6,
+      }}
+    >
+      <Text style={{ color: PREMIUM_LIGHT.text, fontSize: 16, fontWeight: '800' }}>{title}</Text>
+    </View>
   );
 
   return (
@@ -187,9 +248,10 @@ const AdminVehicles = ({ navigation }) => {
         </View>
       ) : (
         <View style={{ flex: 1, padding: 16 }}>
-          <FlatList
-            data={vehicles}
+          <SectionList
+            sections={groupedVehicles}
             renderItem={renderVehicle}
+            renderSectionHeader={renderSectionHeader}
             keyExtractor={(item) => item._id}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             ListEmptyComponent={
